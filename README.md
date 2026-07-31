@@ -165,8 +165,11 @@ The checks cover:
 - complete world construction, required landmarks, finite geometry and
   instance matrices, plus world draw-call/triangle budgets.
 
-Pushes to `main`, `claude/**` and `agent/**` build and deploy through GitHub
-Actions. Pull requests build and run the checks without deploying.
+Pushes to `main`, `claude/**` and `agent/**` build through GitHub Actions.
+`main` and `claude/**` also deploy; the repository's `github-pages` environment
+currently rejects `agent/**` at its branch-protection gate. Add `agent/**` to
+that environment's deployment-branch allowlist to enable this branch preview.
+Pull requests build and run the checks without deploying.
 
 ## Licence
 
