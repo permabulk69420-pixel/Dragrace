@@ -12,8 +12,9 @@ on:
 permissions:
   contents: read
 
+# Keep branch/PR validation runs from cancelling the real Pages deployment on main.
 concurrency:
-  group: pages
+  group: build-deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +34,9 @@ jobs:
         run: npm run build
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -46,14 +49,11 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    # WebXR needs HTTPS, which Pages gives us for free.
-    # The repository's github-pages environment currently permits main and
-    # claude/**, but rejects agent/** before a runner starts. Agent branches
-    # still build and validate above; add agent/** to that environment's
-    # deployment-branch allowlist when branch previews are wanted.
+    # Only main publishes the live GitHub Pages site. Feature branches and PRs
+    # still build/test above, but cannot replace or cancel the live deployment.
     if: >-
-      github.event_name != 'pull_request' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
