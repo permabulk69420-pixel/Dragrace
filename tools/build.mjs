@@ -24,6 +24,7 @@ fs.mkdirSync(dist, { recursive: true });
 
 run('vendor.mjs');
 run('smoke-test.mjs');
+run('world-smoke-test.mjs');
 
 for (const entry of ['index.html', 'src', 'vendor']) {
   fs.cpSync(path.join(root, entry), path.join(dist, entry), { recursive: true });

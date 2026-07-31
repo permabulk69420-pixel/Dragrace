@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'claude/**'
+      - 'agent/**'
   pull_request:
   workflow_dispatch:
 
@@ -46,7 +47,13 @@ jobs:
 
   deploy:
     # WebXR needs HTTPS, which Pages gives us for free.
-    if: github.event_name != 'pull_request'
+    # The repository's github-pages environment currently permits main and
+    # claude/**, but rejects agent/** before a runner starts. Agent branches
+    # still build and validate above; add agent/** to that environment's
+    # deployment-branch allowlist when branch previews are wanted.
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
     needs: build
     runs-on: ubuntu-latest
     permissions:

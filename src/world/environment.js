@@ -1,61 +1,63 @@
-/**
- * Sky and image-based lighting.
- *
- * A dusk gradient is painted into a canvas, used both as the visible sky and,
- * through PMREM, as the environment map. That gives the paint and chrome
- * something to reflect without shipping an HDR file.
- */
+/** Night sky, reflections and broad lighting for the street-racing world. */
 import * as THREE from 'three';
+import { seededRandom } from './materials.js';
 
 function skyCanvas() {
   const c = document.createElement('canvas');
   c.width = 1024;
   c.height = 512;
   const g = c.getContext('2d');
+  const random = seededRandom(0x5a17c0de);
 
   const sky = g.createLinearGradient(0, 0, 0, 512);
-  sky.addColorStop(0.00, '#0a1024');
-  sky.addColorStop(0.34, '#1d3557');
-  sky.addColorStop(0.47, '#5a6f92');
-  sky.addColorStop(0.50, '#c98a52');
-  sky.addColorStop(0.52, '#7a5a44');
-  sky.addColorStop(0.62, '#221a1c');
-  sky.addColorStop(1.00, '#0b0c10');
+  sky.addColorStop(0.00, '#02040c');
+  sky.addColorStop(0.24, '#071126');
+  sky.addColorStop(0.47, '#162747');
+  sky.addColorStop(0.56, '#3f2940');
+  sky.addColorStop(0.63, '#16141e');
+  sky.addColorStop(1.00, '#05070a');
   g.fillStyle = sky;
   g.fillRect(0, 0, 1024, 512);
 
-  // Sun glow just above the horizon, behind the car at the start line.
-  const sunX = 1024 * 0.30;
-  const sunY = 512 * 0.47;
-  const glow = g.createRadialGradient(sunX, sunY, 4, sunX, sunY, 260);
-  glow.addColorStop(0, 'rgba(255,236,196,1)');
-  glow.addColorStop(0.12, 'rgba(255,186,110,0.85)');
-  glow.addColorStop(0.45, 'rgba(255,140,70,0.22)');
-  glow.addColorStop(1, 'rgba(255,120,60,0)');
-  g.fillStyle = glow;
-  g.fillRect(0, 0, 1024, 512);
+  // Sodium-orange city glow sits low on the horizon and reads in reflections.
+  for (const [x, colour, radius] of [[215, '#ff7d36', 250], [730, '#5b7dff', 210]]) {
+    const glow = g.createRadialGradient(x, 286, 3, x, 286, radius);
+    glow.addColorStop(0, `${colour}b8`);
+    glow.addColorStop(0.24, `${colour}45`);
+    glow.addColorStop(1, `${colour}00`);
+    g.fillStyle = glow;
+    g.fillRect(0, 80, 1024, 360);
+  }
 
-  // A few clouds, stretched so they read as bands near the horizon.
-  g.globalAlpha = 0.25;
-  for (let i = 0; i < 26; i++) {
-    const y = 90 + Math.random() * 150;
-    const w = 90 + Math.random() * 260;
-    const h = 6 + Math.random() * 16;
-    g.fillStyle = i % 3 === 0 ? '#ffb27a' : '#5d6f92';
+  // Long cloud bands catch a little city light without making a bright sky.
+  g.globalAlpha = 0.2;
+  for (let i = 0; i < 30; i++) {
+    const y = 120 + random() * 170;
+    const w = 80 + random() * 250;
+    const h = 4 + random() * 13;
+    g.fillStyle = i % 3 ? '#576884' : '#9a5c53';
     g.beginPath();
-    g.ellipse(Math.random() * 1024, y, w, h, 0, 0, Math.PI * 2);
+    g.ellipse(random() * 1024, y, w, h, (random() - 0.5) * 0.05, 0, Math.PI * 2);
     g.fill();
   }
   g.globalAlpha = 1;
 
-  // Stars in the upper sky.
-  g.fillStyle = '#ffffff';
-  for (let i = 0; i < 220; i++) {
-    const y = Math.random() * 170;
-    g.globalAlpha = 0.15 + Math.random() * 0.5 * (1 - y / 200);
-    g.fillRect(Math.random() * 1024, y, 1.6, 1.6);
+  // Stars fade out toward the light-polluted horizon.
+  for (let i = 0; i < 320; i++) {
+    const y = random() * 205;
+    const alpha = (0.18 + random() * 0.7) * (1 - y / 260);
+    g.fillStyle = `rgba(220,235,255,${alpha})`;
+    const size = random() > 0.96 ? 2 : 1;
+    g.fillRect(random() * 1024, y, size, size);
   }
-  g.globalAlpha = 1;
+
+  const moon = g.createRadialGradient(842, 76, 2, 842, 76, 38);
+  moon.addColorStop(0, '#f4f4e6');
+  moon.addColorStop(0.24, '#dce5ef');
+  moon.addColorStop(0.31, '#8fb4df55');
+  moon.addColorStop(1, '#8fb4df00');
+  g.fillStyle = moon;
+  g.fillRect(790, 24, 104, 104);
   return c;
 }
 
@@ -64,43 +66,57 @@ function skyCanvas() {
  * @param {THREE.Scene} scene
  */
 export function setupEnvironment(renderer, scene) {
-  const tex = new THREE.CanvasTexture(skyCanvas());
-  tex.mapping = THREE.EquirectangularReflectionMapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
+  const sky = new THREE.CanvasTexture(skyCanvas());
+  sky.mapping = THREE.EquirectangularReflectionMapping;
+  sky.colorSpace = THREE.SRGBColorSpace;
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   pmrem.compileEquirectangularShader();
-  const envMap = pmrem.fromEquirectangular(tex).texture;
+  const envMap = pmrem.fromEquirectangular(sky).texture;
+  scene.background = sky;
   scene.environment = envMap;
-  scene.background = tex;
-  scene.environmentIntensity = 1.0;
-  scene.fog = new THREE.FogExp2(0x18202e, 0.0011);
+  scene.environmentIntensity = 0.72;
+  scene.fog = new THREE.FogExp2(0x08111b, 0.00105);
   pmrem.dispose();
 
-  // Key light: low sun, warm, casting along the strip.
-  const sun = new THREE.DirectionalLight(0xffd0a0, 3.0);
-  sun.position.set(30, 30, 24);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 80;
-  const s = 14;
-  sun.shadow.camera.left = -s;
-  sun.shadow.camera.right = s;
-  sun.shadow.camera.top = s;
-  sun.shadow.camera.bottom = -s;
-  sun.shadow.bias = -0.0012;
-  sun.shadow.normalBias = 0.02;
-  scene.add(sun);
-  scene.add(sun.target);
+  // The moon remains the one shadow-casting world light.  Its compact shadow
+  // frustum follows the car in main.js, keeping resolution useful on Quest.
+  const moon = new THREE.DirectionalLight(0xa8caff, 2.25);
+  moon.name = 'MoonKey';
+  moon.position.set(34, 42, 26);
+  moon.castShadow = true;
+  moon.shadow.mapSize.set(1024, 1024);
+  moon.shadow.camera.near = 1;
+  moon.shadow.camera.far = 105;
+  moon.shadow.camera.left = -28;
+  moon.shadow.camera.right = 28;
+  moon.shadow.camera.top = 28;
+  moon.shadow.camera.bottom = -28;
+  moon.shadow.bias = -0.0008;
+  moon.shadow.normalBias = 0.035;
+  scene.add(moon, moon.target);
 
-  const fill = new THREE.HemisphereLight(0x9cc0ff, 0x3a2c22, 0.85);
-  scene.add(fill);
+  const hemisphere = new THREE.HemisphereLight(0x7098d0, 0x22180f, 0.62);
+  hemisphere.name = 'NightHemisphere';
+  scene.add(hemisphere);
 
-  // A cool rim light from the far side so the car reads in silhouette.
-  const rim = new THREE.DirectionalLight(0x7fa8ff, 0.9);
-  rim.position.set(-30, 14, -26);
-  scene.add(rim);
+  const cityBounce = new THREE.DirectionalLight(0xff7f42, 0.42);
+  cityBounce.name = 'CityBounce';
+  cityBounce.position.set(-70, 18, -90);
+  scene.add(cityBounce);
 
-  return { sun, fill, rim, envMap };
+  const skylineFill = new THREE.DirectionalLight(0x675cff, 0.28);
+  skylineFill.name = 'SkylineFill';
+  skylineFill.position.set(110, 30, 120);
+  scene.add(skylineFill);
+
+  return {
+    // `sun` is retained as a compatibility alias for the existing renderer loop.
+    sun: moon,
+    moon,
+    fill: hemisphere,
+    cityBounce,
+    skylineFill,
+    envMap,
+  };
 }
