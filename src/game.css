@@ -1,0 +1,536 @@
+:root {
+  color-scheme: dark;
+  --race-red: #ff315c;
+  --race-cyan: #22d6d0;
+  --race-amber: #ffb335;
+  --panel: rgba(6, 9, 15, 0.72);
+  --line: rgba(177, 195, 219, 0.22);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #02040a;
+  overscroll-behavior: none;
+}
+
+body {
+  color: #f4f7fb;
+  font-family: var(--font-geist-sans, Inter, Arial, sans-serif);
+}
+
+button {
+  font: inherit;
+}
+
+.drag-race-app,
+.race-renderer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.race-renderer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.race-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent 20%, transparent 75%, rgba(0, 0, 0, 0.55)),
+    radial-gradient(circle at 50% 48%, transparent 45%, rgba(0, 0, 0, 0.38) 100%);
+  z-index: 2;
+}
+
+.race-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: max(18px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.8);
+}
+
+.brand-mark,
+.loading-logo {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  border-radius: 4px 14px 4px 14px;
+  background: linear-gradient(135deg, #ff315c 0 52%, #7c0c26 52% 100%);
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  box-shadow: 0 0 28px rgba(255, 49, 92, 0.25);
+}
+
+.brand-lockup div {
+  display: grid;
+  gap: 4px;
+}
+
+.brand-lockup strong {
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.brand-lockup span:last-child {
+  color: #93a0b2;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.race-readout {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  font-family: var(--font-geist-mono, monospace);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.9);
+}
+
+.race-readout span {
+  color: #a7b3c3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.race-readout strong {
+  font-size: clamp(25px, 4vw, 46px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.06em;
+}
+
+.telemetry-card {
+  position: fixed;
+  top: 102px;
+  left: max(20px, env(safe-area-inset-left));
+  z-index: 5;
+  width: min(242px, 34vw);
+  padding: 14px 15px 13px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--race-red);
+  background: linear-gradient(135deg, rgba(5, 8, 14, 0.87), rgba(12, 16, 25, 0.58));
+  backdrop-filter: blur(13px);
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
+.telemetry-card > div:not(.rpm-strip) {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(173, 193, 219, 0.08);
+}
+
+.telemetry-card span {
+  color: #7f8b9c;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.telemetry-card strong {
+  color: #e8edf4;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry-card strong > b {
+  font-size: 14px;
+}
+
+.rpm-strip {
+  height: 4px;
+  margin-top: 11px;
+  overflow: hidden;
+  background: #242a34;
+}
+
+.rpm-strip i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: linear-gradient(90deg, var(--race-cyan), var(--race-amber) 72%, var(--race-red));
+  transition: background 100ms;
+}
+
+.rpm-strip i.is-shift {
+  background: #ff315c;
+  box-shadow: 0 0 10px #ff315c;
+}
+
+.launch-callout {
+  position: fixed;
+  top: 47%;
+  left: 50%;
+  z-index: 6;
+  display: grid;
+  min-width: min(410px, calc(100vw - 36px));
+  gap: 5px;
+  padding: 15px 26px 17px;
+  transform: translate(-50%, -50%);
+  border-top: 1px solid rgba(255, 255, 255, 0.34);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(90deg, transparent, rgba(3, 5, 10, 0.88) 17%, rgba(3, 5, 10, 0.88) 83%, transparent);
+  text-align: center;
+  text-shadow: 0 2px 18px black;
+  pointer-events: none;
+  transition: opacity 300ms, transform 300ms;
+}
+
+.launch-callout.is-hidden {
+  opacity: 0;
+  transform: translate(-50%, -42%);
+}
+
+.launch-callout span {
+  color: var(--race-red);
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+}
+
+.launch-callout strong {
+  font-size: clamp(18px, 3.5vw, 34px);
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+
+.launch-callout small {
+  color: #8995a5;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.race-actions {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  z-index: 8;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  max-width: 650px;
+}
+
+.race-actions button,
+.race-actions #VRButton {
+  position: static !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 34px !important;
+  margin: 0 !important;
+  padding: 0 13px !important;
+  transform: none !important;
+  border: 1px solid rgba(188, 203, 222, 0.3) !important;
+  border-radius: 2px !important;
+  outline: none;
+  background: rgba(5, 8, 14, 0.76) !important;
+  color: #cad3df !important;
+  font-family: var(--font-geist-mono, monospace) !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  line-height: 32px !important;
+  letter-spacing: 0.08em !important;
+  opacity: 1 !important;
+  backdrop-filter: blur(10px);
+  cursor: pointer !important;
+  transition: border-color 140ms, color 140ms, background 140ms;
+}
+
+.race-actions button:hover,
+.race-actions #VRButton:hover {
+  border-color: var(--race-red) !important;
+  background: rgba(47, 8, 19, 0.85) !important;
+  color: #fff !important;
+}
+
+.race-actions [data-vr-button] {
+  display: contents;
+}
+
+.control-hint {
+  position: fixed;
+  left: max(20px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 5;
+  display: flex;
+  gap: 16px;
+  color: #738092;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
+.touch-controls {
+  display: none;
+}
+
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 99px, rgba(255, 255, 255, 0.025) 100px),
+    #03050a;
+  transition: opacity 500ms 180ms, visibility 500ms 180ms;
+}
+
+.loading-screen.is-done {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.loading-screen .loading-logo {
+  width: 70px;
+  height: 70px;
+  font-size: 24px;
+  animation: loading-pulse 900ms infinite alternate ease-in-out;
+}
+
+.loading-screen strong {
+  margin-top: 10px;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+}
+
+.loading-screen span {
+  color: #697688;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 8px;
+  letter-spacing: 0.13em;
+}
+
+@keyframes loading-pulse {
+  to {
+    box-shadow: 0 0 45px rgba(255, 49, 92, 0.55);
+    transform: scale(1.04);
+  }
+}
+
+.drag-race-app.is-xr > :not(.race-renderer) {
+  visibility: hidden;
+}
+
+@media (pointer: coarse), (max-width: 860px) {
+  .race-header {
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .brand-mark {
+    width: 39px;
+    height: 39px;
+    font-size: 14px;
+  }
+
+  .brand-lockup strong {
+    font-size: 12px;
+  }
+
+  .brand-lockup span:last-child {
+    display: none;
+  }
+
+  .race-readout span {
+    max-width: 150px;
+    overflow: hidden;
+    font-size: 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .telemetry-card {
+    top: 68px;
+    left: 12px;
+    width: 158px;
+    padding: 8px 10px;
+  }
+
+  .telemetry-card > div:not(.rpm-strip) {
+    padding: 3px 0;
+  }
+
+  .telemetry-card > div:nth-child(3),
+  .telemetry-card > div:nth-child(4) {
+    display: none;
+  }
+
+  .launch-callout {
+    top: 38%;
+  }
+
+  .race-actions {
+    top: max(67px, env(safe-area-inset-top));
+    right: 10px;
+    bottom: auto;
+    max-width: 200px;
+  }
+
+  .race-actions button,
+  .race-actions #VRButton {
+    height: 30px !important;
+    padding: 0 9px !important;
+    font-size: 7px !important;
+    line-height: 28px !important;
+  }
+
+  .race-actions [data-export],
+  .race-actions [data-action="doors"] {
+    display: none;
+  }
+
+  .control-hint {
+    display: none;
+  }
+
+  .touch-controls {
+    position: fixed;
+    right: 0;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 0;
+    z-index: 9;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 14px;
+    pointer-events: none;
+  }
+
+  .touch-controls > div {
+    display: flex;
+    gap: 8px;
+    pointer-events: auto;
+  }
+
+  .touch-controls button {
+    display: grid;
+    min-width: 54px;
+    height: 54px;
+    place-items: center;
+    border: 1px solid rgba(195, 211, 231, 0.34);
+    border-radius: 50%;
+    background: rgba(5, 8, 14, 0.52);
+    color: white;
+    font-family: var(--font-geist-mono, monospace);
+    font-size: 10px;
+    font-weight: 800;
+    backdrop-filter: blur(7px);
+    touch-action: none;
+  }
+
+  .touch-controls button.is-active,
+  .touch-controls button:active {
+    border-color: var(--race-red);
+    background: rgba(255, 49, 92, 0.34);
+    box-shadow: 0 0 22px rgba(255, 49, 92, 0.26);
+  }
+
+  .touch-shift {
+    align-items: center;
+  }
+
+  .touch-shift span {
+    color: #788598;
+    font-family: var(--font-geist-mono, monospace);
+    font-size: 7px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    writing-mode: vertical-rl;
+  }
+
+  .touch-shift button {
+    min-width: 42px;
+    height: 42px;
+    font-size: 19px;
+  }
+
+  .touch-pedals button:last-child {
+    width: 72px;
+    height: 72px;
+    border-color: rgba(255, 49, 92, 0.58);
+  }
+}
+
+@media (max-width: 570px) {
+  .touch-shift {
+    position: absolute;
+    right: 102px;
+    bottom: 80px;
+  }
+
+  .touch-pedals button:first-child {
+    position: absolute;
+    right: 94px;
+    bottom: 0;
+  }
+
+  .launch-callout {
+    top: 42%;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-screen .loading-logo {
+    animation: none;
+  }
+}
+
