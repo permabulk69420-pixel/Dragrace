@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="First-person VR drag racing for Meta Quest, built with Three.js and WebXR.">
+<title>Nitro Strip &mdash; VR Drag Racing</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#127950;</text></svg>">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070c; }
+  body { font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; color: #e8eef7; }
+  canvas { display: block; touch-action: none; }
+
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 35%, #17233b 0%, #05070c 70%);
+    z-index: 20; transition: opacity .5s ease; padding: 24px;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  .panel { max-width: 640px; text-align: center; }
+  .panel h1 {
+    font-size: clamp(28px, 6vw, 46px); margin: 0 0 4px; letter-spacing: .12em; text-transform: uppercase;
+    background: linear-gradient(180deg, #fff 30%, #ff9a3c 130%); -webkit-background-clip: text;
+    background-clip: text; color: transparent;
+  }
+  .panel p.sub { margin: 0 0 22px; color: #8fa3bf; letter-spacing: .28em; font-size: 12px; text-transform: uppercase; }
+  .bar { height: 4px; background: #16233a; border-radius: 4px; overflow: hidden; margin: 20px auto 10px; max-width: 320px; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #ff6a00, #ffd166); transition: width .25s ease; }
+  #status { font-size: 13px; color: #7d90ac; min-height: 20px; }
+  #enter { display: none; margin-top: 18px; }
+  #enter button {
+    font: inherit; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; cursor: pointer;
+    padding: 13px 30px; margin: 6px; border-radius: 999px; border: 1px solid #2c3f5e;
+    background: #101a2b; color: #dbe6f5; transition: background .15s, border-color .15s, transform .1s;
+  }
+  #enter button:hover { background: #17243a; border-color: #4a6ea8; }
+  #enter button:active { transform: translateY(1px); }
+  #enter button.primary { background: linear-gradient(180deg, #ff8a2b, #e2560d); border-color: #ff9d4d; color: #1b0d02; font-weight: 700; }
+  #enter button[disabled] { opacity: .4; cursor: not-allowed; }
+  .keys { margin-top: 26px; font-size: 12.5px; color: #7d90ac; line-height: 1.9; }
+  .keys kbd {
+    background: #14203a; border: 1px solid #26355480; border-bottom-width: 2px; border-radius: 5px;
+    padding: 1px 7px; font-family: ui-monospace, monospace; font-size: 11.5px; color: #cfe0f5;
+  }
+  .note { margin-top: 18px; font-size: 11.5px; color: #56688a; }
+
+  /* Flat 2D mirror of the dash readout, desktop only. */
+  #hud {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; pointer-events: none;
+    padding: 14px 18px; display: none; justify-content: space-between; align-items: flex-end;
+    font-variant-numeric: tabular-nums; text-shadow: 0 2px 8px #000a;
+  }
+  #hud.on { display: flex; }
+  #hud .gear { font-size: 46px; font-weight: 800; line-height: .9; color: #ffd166; }
+  #hud .speed b { font-size: 30px; }
+  #hud .right { text-align: right; font-size: 13px; color: #a9bcd6; line-height: 1.6; }
+  #hud .right b { color: #fff; font-size: 16px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="panel">
+    <h1>Nitro Strip</h1>
+    <p class="sub">WebXR &middot; Quarter Mile</p>
+    <div class="bar"><i id="progress"></i></div>
+    <div id="status">Building the car&hellip;</div>
+    <div id="enter">
+      <button id="btn-vr" class="primary" disabled>Enter VR</button>
+      <button id="btn-desktop">Drive on desktop</button>
+    </div>
+    <div class="keys">
+      <b>Quest</b> &middot; right trigger throttle &middot; left trigger brake &middot;
+      <b>A</b>/<b>B</b> shift up/down &middot; right stick steers &middot;
+      grab the wheel with either grip to steer by hand &middot;
+      <b>X</b> reset &middot; <b>Y</b> recentre seat &middot; left stick click: chute<br>
+      <b>Desktop</b> &middot; <kbd>W</kbd>/<kbd>&uarr;</kbd> throttle &middot; <kbd>S</kbd>/<kbd>&darr;</kbd> brake &middot;
+      <kbd>A</kbd><kbd>D</kbd> steer &middot; <kbd>&nbsp;</kbd> clutch &middot;
+      <kbd>Q</kbd>/<kbd>E</kbd> shift &middot; <kbd>R</kbd> reset &middot; <kbd>C</kbd> chute &middot;
+      <kbd>V</kbd> camera &middot; <kbd>G</kbd> export car.glb
+    </div>
+    <p class="note">Stage the car by rolling into the beams at the start line, then wait for the tree.</p>
+  </div>
+</div>
+
+<div id="hud">
+  <div><div class="gear" id="hud-gear">N</div><div class="speed"><b id="hud-speed">0</b> mph</div></div>
+  <div class="right" id="hud-info"></div>
+</div>
+
+<script type="module">
+  // Surface load errors on the overlay instead of failing silently on a headset.
+  const status = document.getElementById('status');
+  const fail = (msg) => {
+    status.innerHTML = `<span style="color:#ff8a8a">${msg}</span>`;
+    document.getElementById('progress').style.width = '100%';
+  };
+  window.addEventListener('error', (e) => fail(`Error: ${e.message}`));
+  window.addEventListener('unhandledrejection', (e) => fail(`Error: ${e.reason?.message ?? e.reason}`));
+  import('./src/main.js').catch((e) => fail(`Failed to start: ${e.message}`));
+</script>
+</body>
+</html>
