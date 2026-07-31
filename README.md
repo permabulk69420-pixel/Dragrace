@@ -1,179 +1,173 @@
-# Nitro Strip
+# Midnight Circuit
 
-First-person VR drag racing for Meta Quest, built with Three.js and WebXR. The
-whole car — exterior and cockpit — is generated in code; there are no modelling
-tools involved and no mesh files to load.
+A complete first-person WebXR street-racing environment for Meta Quest, built
+with Three.js ES modules at real-world scale (**1 unit = 1 metre**).
 
-![the car](docs/car.png)
+Midnight Circuit is a **3.68 km closed road course** with a 35 m elevation
+change and a maximum 6.6% grade. It is designed to feel like an early-2000s
+street racer rather than a test loop: docklands, an industrial climb, a high
+viaduct, neon commercial streets, a downtown descent, a harbour tunnel and a
+fast final boulevard all form one continuous lap.
+
+The existing code-generated car remains in the project as a playable preview.
+No file under `src/car/` was changed for the course build. The world exposes a
+vehicle-independent spawn and road-surface API so another vehicle can replace
+the preview car without rebuilding the course.
+
+## Course features
+
+- 3.68 km spline-authored loop with broad fast corners, linked switchbacks,
+  meaningful elevation, road crown and corner banking.
+- Layered asphalt, shoulders, reflective double centre lines, edge paint,
+  direction arrows, city sidewalks, selective red/white apex kerbs and a full
+  start grid.
+- Dockyards with stacked containers, warehouses, storage tanks, rail lines and
+  three container cranes.
+- Elevated skyway with a structural deck, fascia, concrete supports, protected
+  edges and a 35 m high point.
+- Enclosed harbour tunnel with concrete shell, lower wall bands, cool ceiling
+  fixtures and local light pools.
+- Instanced skyline, rooftop machinery, mountain silhouettes, street lamps,
+  chevrons, barrier panels and industrial props.
+- Fictional period-style billboards, neon storefronts, start/finish gantry,
+  grid lights and a live course scoreboard.
+- Procedural night sky, city glow, stars, fog, reflection environment and a
+  compact shadow-casting moon light.
+- A moving pool of four real PointLights follows the player to the nearest
+  street or tunnel fixtures; hundreds of visible lamps do not become hundreds
+  of dynamic lights.
 
 ## Running it
 
-The site is plain ES modules with a vendored copy of three.js, so there is no
-bundler and no build step for development.
+The site is plain browser ES modules with a vendored copy of Three.js. There is
+no client bundler.
 
 ```bash
-npm install     # only needed for the GLB export and the checks
-npm run dev     # http://localhost:8080
+npm install
+npm run dev
 ```
 
-**On a Quest.** WebXR needs a secure context, so either open the deployed HTTPS
-site in the headset browser, or forward the dev server over USB, which counts as
-localhost and is therefore trusted:
+Open `http://localhost:8080`. For Quest development, USB forwarding preserves a
+trusted localhost context:
 
 ```bash
 adb reverse tcp:8080 tcp:8080
 ```
 
 Then open `http://localhost:8080` in the Quest browser and press **Enter VR**.
+The deployed GitHub Pages version is HTTPS, as required by WebXR.
 
 ## Controls
 
-| | Quest | Desktop |
+| Action | Quest | Desktop |
 |---|---|---|
 | Throttle | right trigger | <kbd>W</kbd> / <kbd>↑</kbd> |
 | Brake | left trigger | <kbd>S</kbd> / <kbd>↓</kbd> |
-| Steer | right thumbstick, **or grab the wheel** with either grip | <kbd>A</kbd> <kbd>D</kbd> |
-| Clutch | (automatic) | <kbd>Space</kbd> |
+| Steer | right thumbstick, or grab the wheel | <kbd>A</kbd> / <kbd>D</kbd> |
+| Clutch | automatic | <kbd>Space</kbd> |
 | Shift up / down | **A** / **B** | <kbd>Q</kbd> / <kbd>E</kbd> |
-| Line lock (burnout) | left grip | <kbd>Shift</kbd> |
-| Parachute | left stick click | <kbd>C</kbd> |
-| Reset to the line | **X** | <kbd>R</kbd> |
-| Recentre the seat | **Y** | <kbd>H</kbd> |
-| Camera / export GLB | — | <kbd>V</kbd> / <kbd>G</kbd> |
+| Reset to grid | **X** | <kbd>R</kbd> |
+| Recentre seat | **Y** | <kbd>H</kbd> |
+| Change camera | right stick click | <kbd>V</kbd> |
 
-Grab steering is the one worth trying: squeeze a grip with your hand near the
-rim and the wheel tracks your hand around the column axis, which feels far
-better than nudging a thumbstick.
+The three-light grid countdown starts automatically. The one-lap timer follows
+route progress rather than assuming a particular vehicle or world axis.
 
-### How to make a good run
+## World integration contract
 
-1. Roll into the water box behind the line, hold the **line lock** and floor it.
-   The rears light up, the tyre temperature climbs and cold slicks turn into
-   sticky ones. (There is a tyre-temperature readout on the desktop HUD.)
-2. Creep forward until the pre-stage and stage bulbs light on the tree.
-3. Hold the brake and the throttle together — the two-step limiter parks the
-   engine at 4200 rpm.
-4. Release the brake on the last amber. The clutch dumps, the nose lifts, and
-   the chassis pitches on the wheelie bars.
-5. Pull the chute after the finish line.
+`src/world/course.js` is the single source of truth for route geometry. It has
+no dependency on the car, vehicle physics, DOM or renderer.
 
-The car runs a low nine at about 157 mph if you get the launch right.
+```js
+import { buildTrack } from './world/track.js';
 
-## How it is put together
+const track = buildTrack();
+scene.add(track.object);
 
+// Place any vehicle on the grid.
+vehicle.position.copy(track.spawn.position);
+vehicle.rotation.y = track.spawn.heading;
+
+// Follow road elevation/banking or drive a collision/traction system.
+const road = track.surfaceAt(vehicle.position.x, vehicle.position.z, previousRouteDistance);
+vehicle.position.y = road.height;
+// road.tangent, road.normal, road.bank, road.pitch, road.lateral,
+// road.onRoad and road.onDriveableSurface are also available. The optional
+// route-distance hint keeps stacked flyover and lower-road queries distinct.
+
+// Updates nearest local lights and subtle neon/water animation.
+track.update(elapsedTime, vehicle.position);
 ```
+
+Important exported measurements:
+
+| Value | Measurement |
+|---|---:|
+| Lap length | 3,676 m |
+| Road width | 13.2 m |
+| Driveable width including shoulders | 15.9 m |
+| Peak elevation | 35.0 m |
+| Maximum grade | 6.6% |
+| Route samples | 840 |
+| Checkpoints | start + 25% + 50% + 75% |
+
+The preview integration makes one minimal physics compatibility change:
+`Vehicle({ enforceStripBounds: false })` disables the old drag strip's global-X
+lane clamp. Its default remains `true`, so the original drag physics tests and
+behaviour are preserved.
+
+## Architecture
+
+```text
 src/
-  car/
-    spec.js        every dimension and drivetrain number, shared with the physics
-    geom.js        lofting, tubes, rounded boxes, static merging
-    body.js        the exterior: one lofted shell plus details
-    interior.js    the cockpit
-    wheels.js      tyres, rims, brakes, suspension links
-    gauges.js      canvas-drawn instrument faces and the dash screen
-    materials.js   the PBR material set
-    car.js         assembles the hierarchy and applies simulation state
-  physics/vehicle.js   the drag-racing vehicle model
-  world/               track, sky/IBL, race director
+  world/
+    course.js          pure route, frames, spawn and nearest-surface queries
+    roadGeometry.js    ribbons, barriers, fascia and tunnel sweep geometry
+    materials.js       procedural textures and shared materials
+    scenery.js         instanced city, dock, lighting, signs and hero props
+    track.js           assembles the complete world and integration API
+    environment.js     night sky, fog, IBL and broad lighting
+    circuitRace.js     vehicle-agnostic lap progress and timing
+    race.js            preserved original drag-race director
+  car/                 preserved existing visual car
+  physics/vehicle.js   preserved drag model plus optional bounds switch
   input/controls.js    keyboard, gamepad and WebXR controllers
-  audio/engine.js      synthesised V8
+  audio/engine.js      synthesised V8 preview audio
 ```
 
-### The car
+## Quest budget
 
-The body is **lofted**, not built out of boxes. `body.js` lists a table of
-cross-sections along the length of the car — underside height, deck height,
-half-widths, the height of the widest point, crown — and `loft()` skins them.
-That is what gives the panels real curvature: a crowned hood, tumblehome in the
-sides, rounded shoulders.
+The world audit constructs every browser-generated mesh and checks all geometry
+and instance matrices for non-finite values.
 
-The same loft cuts the openings. Profile segments are dropped where two adjacent
-sections agree to drop them, which opens the cabin at the top and the wheel
-arches at the sides; arch sections also tuck their lower half inboard so the
-tyre sits in a proper well rather than clipping through the bodywork.
+| Component | Mesh draws | Rendered triangles |
+|---|---:|---:|
+| Course and environment | 86 | 49,007 |
+| Existing car | 164 | 59,850 |
+| Estimated combined scene | 250 | 108,857 |
 
-Wound the wrong way, a lofted ring renders inside-out. `loft()` checks the
-winding of each cross-section and warns, which is how the roof, dash and
-transmission tunnel got caught during development.
+Repeated scenery accounts for **1,602 instances**. Geometry is intentionally
+simple where motion makes silhouette more important than tessellation, while
+hero signs, the start gantry, cranes and tunnel receive the extra detail.
 
-### Hierarchy and pivots
-
-```
-CarRoot                  world position and heading
-  PitchPivot             rotates about the rear axle contact line (wheelies)
-    Chassis
-      Sprung             body and interior: heave, squat, roll
-        Exterior / Interior / DriverAnchor
-      Suspension_FL      one per corner
-        Steer_FL         kingpin yaw (front only)
-          Spin_FL        axle rotation
-```
-
-Steering wheel, shifter, pedals, instrument needles, blower pulleys, tail lights
-and the parachute all keep their own nodes with the pivot in the right place.
-Everything that does *not* move is merged down to one mesh per material, because
-a standalone headset cares far more about draw calls than triangles — that takes
-the car from 431 meshes to 164 at the same 60k triangles.
-
-### Physics
-
-`physics/vehicle.js` is deliberately separate from the model; `applyState()` is
-the only bridge and it passes plain numbers. It runs on a fixed 5 ms substep with
-a carried remainder, so a run at 30 Hz and the same run at 144 Hz agree to within
-a few thousandths of a second (there is a check for exactly this).
-
-It simulates engine inertia against a torque curve, a rev limiter and a two-step,
-a friction clutch that actually slips, driven-wheel angular dynamics, a
-slip-ratio tyre model with load sensitivity and weight transfer, tyre
-temperature, aero drag and downforce, and the parachute.
-
-### The player in VR
-
-The rig hangs off `DriverAnchor` inside the cockpit, so the player rides with the
-car while the headset is still free to move their head around inside it. On
-entering VR — or on pressing **Y** — the rig is shifted and yawed so that
-wherever you are actually sitting or standing lines up with the driver's seat.
-
-## The GLB export
-
-The car can be exported as a normal reusable glTF asset, with the hierarchy,
-pivots and separately animatable parts intact.
-
-```bash
-npm run export:glb        # writes dist/assets/car.glb
-```
-
-Press <kbd>G</kbd> in the browser to do the same thing client-side. The browser
-export includes the canvas-generated textures; the headless one skips them (no
-DOM) but is otherwise identical. Both go through `GLTFExporter`.
-
-## Deployment
-
-Pushes are built and published to GitHub Pages by
-`.github/workflows/deploy.yml`, which vendors three.js, runs the checks, exports
-the GLB and uploads `dist/`. Pull requests build and run the checks without
-deploying.
-
-**One-time setup:** in the repository settings, under *Pages*, set the source to
-**GitHub Actions**. Until that is done the build will succeed and the deploy step
-will fail.
-
-Note that the workflow also deploys from `claude/**` branches so the site is
-live before anything is merged; drop that trigger once `main` is the source of
-truth.
-
-## Checks
+## Checks and deployment
 
 ```bash
 npm run smoke
+npm run build
 ```
 
-Builds the car and asserts the hierarchy, draw-call and triangle budgets, that it
-measures like a car in metres and sits on the ground, and that the driver's eyes
-land inside the cockpit. Then it drives the physics through a burnout, a
-two-step launch and a full quarter mile and checks the 60 ft, ET and trap speed
-land where a car like this would, along with frame-rate independence and that
-the parachute slows it down.
+The checks cover:
+
+- all original car hierarchy, scale, draw-call and triangle budgets;
+- original drag physics, timing and frame-rate independence;
+- course length, elevation, grade, checkpoints and road-surface queries;
+- complete world construction, required landmarks, finite geometry and
+  instance matrices, plus world draw-call/triangle budgets.
+
+Pushes to `main`, `claude/**` and `agent/**` build and deploy through GitHub
+Actions. Pull requests build and run the checks without deploying.
 
 ## Licence
 
-The vendored three.js in `vendor/` is MIT, © three.js authors.
+The vendored Three.js code is MIT, © Three.js authors.

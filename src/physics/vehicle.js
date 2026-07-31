@@ -27,7 +27,11 @@ function slipCurve(k) {
 }
 
 export class Vehicle {
-  constructor() {
+  constructor({ enforceStripBounds = true } = {}) {
+    // The original drag strip clamps world X to one lane.  Curved courses opt
+    // out; the default stays unchanged so the existing drag model and checks
+    // remain byte-for-byte equivalent in behaviour.
+    this.enforceStripBounds = enforceStripBounds;
     this.reset();
   }
 
@@ -319,7 +323,7 @@ export class Vehicle {
 
     this.engineHeat += ((0.3 + this.throttle * 0.5 + Math.min(0.3, this.rpm / 26000)) - this.engineHeat) * h * 0.05;
 
-    if (Math.abs(this.x) > SPEC.laneHalfWidth) {
+    if (this.enforceStripBounds && Math.abs(this.x) > SPEC.laneHalfWidth) {
       this.x = Math.sign(this.x) * SPEC.laneHalfWidth;
       this.offCourse = true;
     }

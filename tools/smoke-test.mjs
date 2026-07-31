@@ -11,6 +11,7 @@ const { buildCar } = await import(path.join(root, 'src/car/car.js'));
 const { Vehicle } = await import(path.join(root, 'src/physics/vehicle.js'));
 const { Race, PHASE } = await import(path.join(root, 'src/world/race.js'));
 const { SPEC } = await import(path.join(root, 'src/car/spec.js'));
+const { courseRoute, ROAD_HALF_WIDTH } = await import(path.join(root, 'src/world/course.js'));
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -59,6 +60,32 @@ parts.driverAnchor.getWorldPosition(eye);
 check('eye point in the cockpit',
   eye.y > 0.95 && eye.y < 1.35 && Math.abs(eye.z) < 0.8 && eye.x < 0,
   `(${eye.x.toFixed(2)}, ${eye.y.toFixed(2)}, ${eye.z.toFixed(2)})`);
+
+/* -- street course -------------------------------------------------------- */
+
+check('course is a substantial 3-4.5 km lap',
+  courseRoute.length > 3000 && courseRoute.length < 4500,
+  `${(courseRoute.length / 1000).toFixed(2)} km`);
+const courseHeights = courseRoute.frames.map((f) => f.center.y);
+check('course has meaningful elevation',
+  Math.max(...courseHeights) > 30 && Math.max(...courseHeights) < 45,
+  `${Math.max(...courseHeights).toFixed(1)} m peak`);
+const maxGrade = Math.max(...courseRoute.frames.map((f) => Math.abs(f.tangent.y)));
+check('course grades stay road-plausible', maxGrade < 0.09, `${(maxGrade * 100).toFixed(1)}% max`);
+const probeFrame = courseRoute.atDistance(courseRoute.length * 0.37);
+const probePoint = probeFrame.center.clone().addScaledVector(probeFrame.right, 4);
+const probe = courseRoute.nearest(probePoint.x, probePoint.z);
+check('road surface query preserves lateral offset', Math.abs(probe.lateral - 4) < 0.25, `${probe.lateral.toFixed(2)} m`);
+check('road surface query identifies asphalt', probe.onRoad && Math.abs(probe.lateral) < ROAD_HALF_WIDTH);
+check('course exposes four ordered checkpoints',
+  courseRoute.checkpoints.length === 4 && courseRoute.checkpoints.every((c, i) => c.index === i));
+const upperFlyover = courseRoute.atDistance(courseRoute.length * 0.575);
+const upperQuery = courseRoute.nearest(upperFlyover.center.x, upperFlyover.center.z, courseRoute.length * 0.575);
+const lowerQuery = courseRoute.nearest(upperFlyover.center.x, upperFlyover.center.z, courseRoute.length * 0.911);
+check('route hint disambiguates stacked flyover roads',
+  Math.abs(upperQuery.distance - lowerQuery.distance) > courseRoute.length * 0.25
+    && upperQuery.height - lowerQuery.height > 3.5,
+  `${(upperQuery.height - lowerQuery.height).toFixed(2)} m deck separation`);
 
 /* -- physics -------------------------------------------------------------- */
 

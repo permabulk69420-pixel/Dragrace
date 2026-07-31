@@ -1,5 +1,5 @@
 /**
- * Nitro Strip - first person VR drag racing.
+ * Midnight Circuit - first person VR street racing.
  *
  * Boots the renderer, builds the world and the car, and runs the loop through
  * renderer.setAnimationLoop so WebXR drives the timing on a headset.
@@ -10,7 +10,7 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { buildCar } from './car/car.js';
 import { setupEnvironment } from './world/environment.js';
 import { buildTrack } from './world/track.js';
-import { Race, PHASE } from './world/race.js';
+import { CircuitRace, CIRCUIT_PHASE, formatTime } from './world/circuitRace.js';
 import { Vehicle } from './physics/vehicle.js';
 import { Controls } from './input/controls.js';
 import { EngineAudio } from './audio/engine.js';
@@ -36,11 +36,11 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: 'high-performance',
   stencil: false,
 });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.xr.enabled = true;
@@ -61,10 +61,10 @@ addEventListener('resize', () => {
 /* World                                                                       */
 /* -------------------------------------------------------------------------- */
 
-step(22, 'Lighting the strip…');
+step(22, 'Lighting the city…');
 const lights = setupEnvironment(renderer, scene);
 
-step(40, 'Building the track…');
+step(40, 'Building Midnight Circuit…');
 const track = buildTrack();
 scene.add(track.object);
 
@@ -97,8 +97,10 @@ function recenter() {
 step(74, 'Wiring up the controls…');
 const controls = new Controls(renderer, rig);
 const audio = new EngineAudio();
-const vehicle = new Vehicle();
-const race = new Race();
+// Only compatibility change required by the world: do not clamp global X to
+// the original straight drag lane.  The car model itself is untouched.
+const vehicle = new Vehicle({ enforceStripBounds: false });
+const race = new CircuitRace(track.route);
 
 /* -------------------------------------------------------------------------- */
 /* Cameras (desktop only - in VR the headset owns the view)                    */
@@ -131,8 +133,10 @@ function updateDesktopCamera(dt, time) {
     );
     camera.lookAt(carPos.x, carPos.y + 0.85, carPos.z);
   } else {
-    camera.position.set(-11, 2.4, -20);
-    camera.lookAt(carPos.x, carPos.y + 0.8, carPos.z);
+    const road = race.currentInfo ?? track.route.nearest(carPos.x, carPos.z);
+    const want = road.center.clone().addScaledVector(road.right, 13).addScaledVector(road.normal, 3.1);
+    camera.position.lerp(want, Math.min(1, dt * 3));
+    camera.lookAt(carPos.x, carPos.y + 0.9, carPos.z);
   }
 }
 
@@ -205,10 +209,11 @@ renderer.xr.addEventListener('sessionend', () => {
 
 function resetCar() {
   race.remember();
-  vehicle.reset(12, 0);
+  vehicle.reset(track.spawn.position.z, track.spawn.position.x);
+  vehicle.heading = track.spawn.heading;
   race.reset();
-  car.root.position.set(0, 0, 12);
-  car.root.rotation.set(0, 0, 0);
+  car.root.position.copy(track.spawn.position);
+  car.root.rotation.set(track.spawn.pitch, track.spawn.heading, track.spawn.roll, 'YXZ');
 }
 
 async function exportGlb() {
@@ -261,24 +266,31 @@ renderer.setAnimationLoop(() => {
   race.update(vehicle, dt);
 
   // --- place the car -------------------------------------------------------
-  car.root.position.set(vehicle.x, 0, vehicle.z);
-  car.root.rotation.y = vehicle.heading;
+  const road = race.currentInfo ?? track.surfaceAt(vehicle.x, vehicle.z);
+  const supported = Math.abs(road.lateral) < track.driveableHalfWidth + 3.0;
+  if (!road.onDriveableSurface) {
+    // Grass, gravel and dock aprons scrub speed in the preview integration.
+    vehicle.speed *= Math.exp(-dt * 0.48);
+  }
+  car.root.position.set(vehicle.x, supported ? road.height + 0.012 : 0, vehicle.z);
+  car.root.rotation.set(supported ? road.pitch : 0, vehicle.heading, supported ? road.bank : 0, 'YXZ');
   car.applyState(vehicle.state, dt);
 
   // Keep the shadow frustum on the car.
-  lights.sun.position.set(vehicle.x + 26, 24, vehicle.z + 18);
-  lights.sun.target.position.set(vehicle.x, 0, vehicle.z - 6);
+  lights.sun.position.set(vehicle.x + 26, car.root.position.y + 24, vehicle.z + 18);
+  lights.sun.target.position.set(vehicle.x, car.root.position.y, vehicle.z - 6);
   lights.sun.target.updateMatrixWorld();
 
   // --- feedback ------------------------------------------------------------
   audio.update(vehicle.state);
-  track.tree.apply(race.lights);
+  track.startLights.apply(race.lights);
+  track.update(elapsed, car.root.position);
 
   hudTimer += dt;
   if (hudTimer > 0.1) {
     hudTimer = 0;
     car.parts.dashScreen.draw(race.dashRows());
-    track.scoreboard.draw(race.boardCells());
+    track.scoreboard.draw(race.boardCells(vehicle.speedMph));
     if (!renderer.xr.isPresenting) updateHud();
   }
 
@@ -294,12 +306,12 @@ function updateHud() {
   const rows = [
     `${Math.round(vehicle.rpm)} rpm${slip}`,
     `${race.message}`,
-    race.phase === PHASE.RUNNING || race.phase === PHASE.FINISHED
-      ? `ET <b>${race.elapsed.toFixed(2)}</b> · ${(race.reaction ?? 0).toFixed(3)} R/T · ${vehicle.distance.toFixed(0)} m`
-      : `Tyre temp ${(vehicle.tyreTemp * 100).toFixed(0)}% · ${CAMERA_MODES[cameraMode]} cam`,
+    race.phase === CIRCUIT_PHASE.RUNNING || race.phase === CIRCUIT_PHASE.FINISHED
+      ? `LAP <b>${formatTime(race.elapsed)}</b> · ${Math.round(race.progress * 100)}% · ${(track.route.length / 1000).toFixed(2)} km course`
+      : `Start in ${Math.max(0, 3 - race.countdown).toFixed(1)} · ${CAMERA_MODES[cameraMode]} cam`,
   ];
   document.getElementById('hud-info').innerHTML = rows.join('<br>');
 }
 
 // Expose a little of the internals for tinkering from the console.
-Object.assign(window, { THREE, scene, renderer, car, vehicle, race, camera });
+Object.assign(window, { THREE, scene, renderer, car, vehicle, race, track, camera });
