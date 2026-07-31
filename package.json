@@ -1,0 +1,17 @@
+{
+  "name": "dragrace",
+  "version": "0.1.0",
+  "description": "WebXR first-person VR drag racing game for Meta Quest, built with Three.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "vendor": "node tools/vendor.mjs",
+    "export:glb": "node tools/export-glb.mjs",
+    "smoke": "node tools/smoke-test.mjs",
+    "build": "node tools/build.mjs",
+    "dev": "node tools/serve.mjs"
+  },
+  "devDependencies": {
+    "three": "0.185.1"
+  }
+}
