@@ -1,21 +1,17 @@
 import * as THREE from 'three';
-import { group, mesh, mergeStatic, roundedBox, tube } from './geom.js';
+import { group, mesh, mergeStatic, tube } from './geom.js';
 
 const FRONT_HEADER = Object.freeze({ x: 0, y: 1.345, z: -0.325 });
 const CAGE_RADIUS = 0.026;
-
-const CLUSTER_Y = 0.955;
-const CLUSTER_Z = -0.445;
-const CLUSTER_TILT = -0.35;
 const WHEEL_DRIVER_OFFSET = 0.035;
-const NEEDLE_WIDTH_SCALE = 0.42;
-const NEEDLE_LENGTH_SCALE = 0.80;
 
-const PRIMARY_GAUGE_RADII = Object.freeze({
-  tacho: 0.068,
-  speedo: 0.048,
-  boost: 0.042,
-});
+// The original cluster was baked into Dashboard_MatteBlack and Dashboard_Glass.
+// This box isolates only that pod/can/glass region, leaving the suede dash skin,
+// vents, mirror and centre-console hardware untouched.
+const PRIMARY_CLUSTER_BOX = new THREE.Box3(
+  new THREE.Vector3(-0.65, 0.89, -0.68),
+  new THREE.Vector3(-0.10, 1.11, -0.43),
+);
 
 function makeCageMaterial() {
   return new THREE.MeshStandardMaterial({
@@ -112,78 +108,84 @@ function buildSightlineCage() {
   return cage;
 }
 
-function refinePrimaryGauges(interior, parts) {
-  const dashboard = interior.getObjectByName('Dashboard');
-  const tacho = interior.getObjectByName('Gauge_tacho');
-  if (!dashboard || !tacho) return;
+function removeTrianglesInsideBox(target, box) {
+  const geometry = target.geometry;
+  const position = geometry?.getAttribute('position');
+  if (!position) return 0;
 
-  // A new faceplate sits in front of the original embedded pod, so the whole
-  // visible cluster can move down and toward the driver as one coherent unit.
-  const faceplate = mesh(
-    roundedBox(0.48, 0.19, 0.025, 0.035),
-    parts.materials.matte,
-    'RefinedGaugeFaceplate',
-    { cast: false },
-  );
-  faceplate.position.set(tacho.position.x, CLUSTER_Y, CLUSTER_Z - 0.032);
-  faceplate.rotation.x = CLUSTER_TILT;
-  faceplate.userData.clusterFaceplate = true;
-  dashboard.add(faceplate);
+  const sourceIndex = geometry.getIndex();
+  const indices = sourceIndex
+    ? Array.from(sourceIndex.array)
+    : Array.from({ length: position.count }, (_, index) => index);
 
-  for (const [name, radius] of Object.entries(PRIMARY_GAUGE_RADII)) {
-    const holder = interior.getObjectByName(`Gauge_${name}`);
-    if (!holder) continue;
+  const kept = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const centroid = new THREE.Vector3();
+  let removed = 0;
 
-    holder.position.y = CLUSTER_Y;
-    holder.position.z = CLUSTER_Z;
-    holder.rotation.x = CLUSTER_TILT;
-    holder.userData.refinedCluster = true;
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i];
+    const ib = indices[i + 1];
+    const ic = indices[i + 2];
+    a.fromBufferAttribute(position, ia);
+    b.fromBufferAttribute(position, ib);
+    c.fromBufferAttribute(position, ic);
+    centroid.copy(a).add(b).add(c).multiplyScalar(1 / 3);
 
-    // Rebuild the visible can and glass around the moved face. The original
-    // static cans remain buried behind the new faceplate and cannot peek through.
-    const can = mesh(
-      new THREE.CylinderGeometry(radius * 1.05, radius * 1.05, 0.030, 28),
-      parts.materials.matte,
-      `Refined_${name}_Can`,
-      { cast: false },
-    );
-    can.rotation.x = Math.PI / 2;
-    can.position.z = -0.020;
-    holder.add(can);
-
-    const bezel = mesh(
-      new THREE.TorusGeometry(radius * 1.005, 0.0035, 8, 32),
-      parts.materials.blackAlloy,
-      `Refined_${name}_Bezel`,
-      { cast: false },
-    );
-    bezel.position.z = 0.002;
-    holder.add(bezel);
-
-    const glass = mesh(
-      new THREE.CircleGeometry(radius * 0.975, 32),
-      parts.materials.glass,
-      `Refined_${name}_Glass`,
-      { cast: false },
-    );
-    glass.position.z = 0.012;
-    holder.add(glass);
-
-    const blade = holder.getObjectByName(`${name}Blade`);
-    if (blade) {
-      blade.scale.x *= NEEDLE_WIDTH_SCALE;
-      blade.scale.y *= NEEDLE_LENGTH_SCALE;
-      blade.position.y *= NEEDLE_LENGTH_SCALE;
-      blade.userData.refinedNeedle = true;
-      blade.userData.widthScale = NEEDLE_WIDTH_SCALE;
-      blade.userData.lengthScale = NEEDLE_LENGTH_SCALE;
+    if (box.containsPoint(centroid)) {
+      removed++;
+    } else {
+      kept.push(ia, ib, ic);
     }
   }
+
+  if (removed > 0) {
+    geometry.setIndex(kept);
+    geometry.clearGroups();
+    geometry.setDrawRange(0, kept.length);
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+  }
+
+  return removed;
+}
+
+function removePrimaryGaugeAssembly(interior, parts) {
+  const dashboard = interior.getObjectByName('Dashboard');
+  let strippedTriangles = 0;
+
+  if (dashboard) {
+    dashboard.traverse((object) => {
+      if (!object.isMesh) return;
+      const materialName = object.material?.name;
+      if (materialName === 'MatteBlack' || materialName === 'Glass') {
+        strippedTriangles += removeTrianglesInsideBox(object, PRIMARY_CLUSTER_BOX);
+      }
+    });
+  }
+
+  // These groups contain the three faces, needles and hubs that were deliberately
+  // kept separate from the baked dashboard so they could animate.
+  for (const name of ['tacho', 'speedo', 'boost']) {
+    interior.getObjectByName(`Gauge_${name}`)?.removeFromParent();
+    delete parts.needles[name];
+  }
+
+  // Defensive cleanup for the short-lived refinement pass. New builds no longer
+  // create these, but this prevents accidental duplication during hot reloads.
+  for (const name of ['RefinedGaugeFaceplate', 'Refined_tacho_Can', 'Refined_speedo_Can', 'Refined_boost_Can']) {
+    interior.getObjectByName(name)?.removeFromParent();
+  }
+
+  return strippedTriangles;
 }
 
 /**
- * Replace the prototype cage and tune the pieces nearest the player's face.
- * This deliberately leaves physics and the exterior shell untouched.
+ * Replace the prototype cage, preserve the revised wheel position, and remove
+ * the temporary procedural instrument cluster so the raw dash is available for
+ * future GLB instruments.
  */
 export function refineCockpit(interior, parts) {
   const oldCage = interior.getObjectByName('RollCage');
@@ -193,7 +195,7 @@ export function refineCockpit(interior, parts) {
   interior.add(cage);
   parts.rollCage = cage;
 
-  refinePrimaryGauges(interior, parts);
+  const strippedDashboardTriangles = removePrimaryGaugeAssembly(interior, parts);
 
   if (parts.steeringWheel) {
     const scale = 0.93;
@@ -207,12 +209,9 @@ export function refineCockpit(interior, parts) {
     frontHeader: { ...FRONT_HEADER },
     steeringWheelRadius: parts.steeringWheelWorldRadius,
     steeringWheelDriverOffset: WHEEL_DRIVER_OFFSET,
-    clusterY: CLUSTER_Y,
-    clusterZ: CLUSTER_Z,
-    primaryGaugesVerticallyCentred: true,
-    needleWidthScale: NEEDLE_WIDTH_SCALE,
-    needleLengthScale: NEEDLE_LENGTH_SCALE,
-    clusterVisorRemoved: true,
+    primaryGaugeClusterRemoved: true,
+    strippedDashboardTriangles,
+    rawDashReadyForGlbInstruments: true,
   };
 
   return cage;
