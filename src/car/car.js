@@ -127,11 +127,13 @@ export function applyState(parts, s, dt) {
   parts.lineLockLever.rotation.x = s.lineLock ? -0.5 : 0;
 
   // --- instruments --------------------------------------------------------
-  parts.needles.tacho.rotation.z = needleAngle(s.rpm / 8000);
-  parts.needles.speedo.rotation.z = needleAngle((s.speed * 2.2369) / 240);
-  parts.needles.boost.rotation.z = needleAngle(s.boost / 30);
-  parts.needles.oil.rotation.z = needleAngle(0.45 + s.rpm / 26000);
-  parts.needles.water.rotation.z = needleAngle(0.34 + s.engineHeat * 0.2);
+  // The procedural tacho/speedo/boost cluster has been removed. Keep these
+  // optional so future GLB instruments can register the same moving-part hooks.
+  if (parts.needles.tacho) parts.needles.tacho.rotation.z = needleAngle(s.rpm / 8000);
+  if (parts.needles.speedo) parts.needles.speedo.rotation.z = needleAngle((s.speed * 2.2369) / 240);
+  if (parts.needles.boost) parts.needles.boost.rotation.z = needleAngle(s.boost / 30);
+  if (parts.needles.oil) parts.needles.oil.rotation.z = needleAngle(0.45 + s.rpm / 26000);
+  if (parts.needles.water) parts.needles.water.rotation.z = needleAngle(0.34 + s.engineHeat * 0.2);
 
   const shiftT = THREE.MathUtils.clamp((s.rpm - 5200) / (SPEC.redlineRpm - 5200), 0, 1);
   parts.shiftLights.forEach((mat, i) => {
