@@ -16,8 +16,10 @@ export const SPEC = {
   frontTuck: 0.62,   // half-width the body pulls in to around the front arch
   rearTuck: 0.54,
 
-  // Where the driver's eyes sit in car space (left-hand drive).
-  eyePoint: { x: -0.38, y: 1.16, z: 0.03 },
+  // Where the driver's eyes sit in car space (left-hand drive). The anchor is
+  // slightly rearward of the prototype so the wheel, gauges and cage read at
+  // believable distances in VR rather than crowding the headset near plane.
+  eyePoint: { x: -0.38, y: 1.18, z: 0.10 },
 
   // Mass and balance -------------------------------------------------------
   mass: 1480,               // kg, with driver and fuel
