@@ -1,11 +1,10 @@
 /**
  * Swept 2D collision against the actual world geometry.
  *
- * The car simulation is planar rather than a full rigid body, so this module
- * builds a three-circle car capsule and continuously sweeps it against static
- * circles and oriented boxes. Structural scenery is extracted from the meshes
- * that are actually rendered, while roadside barriers, guardrails and tunnel
- * walls are rebuilt as short world-space box segments at their visible faces.
+ * The car is represented by a three-circle capsule and swept continuously
+ * against static circles and oriented boxes. Contacts use a standard planar
+ * rigid-body impulse with restitution, friction and yaw inertia. The car is not
+ * rotated to face a reflected vector and it is never snapped to the road spline.
  */
 import * as THREE from 'three';
 import {
@@ -19,9 +18,13 @@ import {
 const CELL_SIZE = 40;
 const PROBE_RADIUS = 0.78;
 const PROBE_OFFSETS = Object.freeze([-1.35, 0, 1.35]);
-const CONTACT_SKIN = 0.035;
+const CONTACT_SKIN = 0.045;
 const EPSILON = 1e-7;
-const BOUNDARY_STEP = 3.0;
+const BOUNDARY_STEP = 1.5;
+const DEFAULT_MASS = 1480;
+const DEFAULT_YAW_INERTIA = 3500;
+const WALL_FRICTION = 0.42;
+const WALL_RESTITUTION = 0.055;
 
 const SOLID_INSTANCES = new Set([
   'ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers',
@@ -88,7 +91,6 @@ function makeCollider(object, matrix, instanceIndex = null) {
   const vertical = verticalBounds(box, matrix);
   const height = vertical.maxY - vertical.minY;
 
-  // Reject decals, roofs and overhead pieces that cannot overlap the car body.
   if (vertical.maxY < 0.22 || vertical.minY > 2.25 || height < 0.55) return null;
   if (halfX < 0.18 || halfZ < 0.18 || halfX * halfZ < 0.12) return null;
 
@@ -109,7 +111,6 @@ function makeCollider(object, matrix, instanceIndex = null) {
     : { ...base, type: 'box', halfX, halfZ, yaw: _euler.y };
 }
 
-/** Extract colliders from the real transforms of visible structural scenery. */
 export function collectStaticColliders(root) {
   root.updateMatrixWorld(true);
   const colliders = [];
@@ -145,19 +146,14 @@ function segmentCollider(route, distanceA, distanceB, side, offset, thickness, h
     x: (a.x + b.x) * 0.5,
     z: (a.z + b.z) * 0.5,
     halfX: thickness * 0.5,
-    halfZ: length * 0.5 + 0.10,
+    halfZ: length * 0.5 + 0.12,
     yaw: Math.atan2(dx, dz),
     minY: Math.min(a.y, b.y) - height * 0.5 - 0.15,
     maxY: Math.max(a.y, b.y) + height * 0.5 + 0.15,
   };
 }
 
-function addBoundaryRange(colliders, route, range, {
-  kind,
-  offset,
-  thickness,
-  height,
-}) {
+function addBoundaryRange(colliders, route, range, { kind, offset, thickness, height }) {
   let start = range[0] * route.length;
   let end = range[1] * route.length;
   if (end < start) end += route.length;
@@ -166,14 +162,7 @@ function addBoundaryRange(colliders, route, range, {
     const next = Math.min(end, d + BOUNDARY_STEP);
     for (const side of [-1, 1]) {
       const collider = segmentCollider(
-        route,
-        d,
-        next,
-        side,
-        offset,
-        thickness,
-        height,
-        kind,
+        route, d, next, side, offset, thickness, height, kind,
         `${kind}:${range[0]}-${range[1]}:${side}:${segmentIndex}`,
       );
       if (collider) colliders.push(collider);
@@ -182,11 +171,6 @@ function addBoundaryRange(colliders, route, range, {
   }
 }
 
-/**
- * Build world-space collision boxes at the same locations as the visible
- * concrete barriers, steel guardrails and tunnel walls. These are real short
- * segments, not a lateral clamp to the route centreline.
- */
 export function collectCourseBoundaryColliders(route = courseRoute) {
   const colliders = [];
   for (const range of BARRIER_RANGES) {
@@ -335,8 +319,27 @@ function lerpHeading(a, b, t) {
   return a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 }
 
-function headingFromForward(direction) {
-  return Math.atan2(-direction.x, -direction.y);
+function crossY(ax, az, bx, bz) {
+  return az * bx - ax * bz;
+}
+
+function readVelocity(vehicle) {
+  if (Number.isFinite(vehicle.velocityX) && Number.isFinite(vehicle.velocityZ)) {
+    return { x: vehicle.velocityX, z: vehicle.velocityZ };
+  }
+  const f = forward(vehicle.heading);
+  return { x: f.x * (vehicle.speed ?? 0), z: f.y * (vehicle.speed ?? 0) };
+}
+
+function writeVelocity(vehicle, x, z) {
+  if (typeof vehicle.setPlanarVelocity === 'function') {
+    vehicle.setPlanarVelocity(x, z);
+    return;
+  }
+  vehicle.velocityX = x;
+  vehicle.velocityZ = z;
+  const f = forward(vehicle.heading);
+  vehicle.speed = x * f.x + z * f.y;
 }
 
 export class StaticCollisionWorld {
@@ -374,7 +377,7 @@ export class StaticCollisionWorld {
   }
 
   #query(start, end) {
-    const padding = Math.max(...this.probeOffsets.map(Math.abs)) + this.probeRadius + 0.2;
+    const padding = Math.max(...this.probeOffsets.map(Math.abs)) + this.probeRadius + 0.25;
     const found = new Set();
     for (let x = Math.floor((Math.min(start.x, end.x) - padding) / this.cellSize);
       x <= Math.floor((Math.max(start.x, end.x) + padding) / this.cellSize); x++) {
@@ -412,10 +415,10 @@ export class StaticCollisionWorld {
     return earliest;
   }
 
-  resolve(vehicle, dt = 0, centreY = 0.82) {
+  resolve(vehicle, dt = 0, centreY = 0.82, suppliedPreviousPose = null) {
     this.elapsed += Math.max(0, Number.isFinite(dt) ? dt : 0);
     const current = { x: vehicle.x, z: vehicle.z, heading: vehicle.heading, y: centreY };
-    const previous = this.previousPose ?? current;
+    const previous = suppliedPreviousPose ?? this.previousPose ?? current;
     const hit = this.#sweep(previous, current, centreY);
     if (!hit) {
       this.previousPose = current;
@@ -427,31 +430,68 @@ export class StaticCollisionWorld {
     vehicle.x = hit.point.x - contactForward.x * hit.offset + hit.normal.x * CONTACT_SKIN;
     vehicle.z = hit.point.z - contactForward.y * hit.offset + hit.normal.y * CONTACT_SKIN;
 
-    const speedSign = Math.sign(vehicle.speed) || 1;
-    const velocity = forward(vehicle.heading).multiplyScalar(vehicle.speed);
-    const normalVelocity = velocity.dot(hit.normal);
-    const impact = Math.max(0, -normalVelocity);
-    let retainedSpeed = 1;
+    const velocity = readVelocity(vehicle);
+    const oldSpeed = Math.hypot(velocity.x, velocity.z);
+    const yawRate = Number.isFinite(vehicle.yawRate) ? vehicle.yawRate : 0;
+    const mass = Math.max(1, Number.isFinite(vehicle.mass) ? vehicle.mass : DEFAULT_MASS);
+    const inertia = Math.max(1, Number.isFinite(vehicle.yawInertia) ? vehicle.yawInertia : DEFAULT_YAW_INERTIA);
+    const invMass = 1 / mass;
+    const invInertia = 1 / inertia;
 
-    if (normalVelocity < -0.05) {
-      const tangent = velocity.clone().addScaledVector(hit.normal, -normalVelocity);
-      const bounced = tangent.multiplyScalar(0.72).addScaledVector(hit.normal, -normalVelocity * 0.16);
-      const magnitude = bounced.length();
-      if (magnitude > 0.02) {
-        const correctedForward = bounced.divideScalar(magnitude).multiplyScalar(speedSign);
-        vehicle.heading = headingFromForward(correctedForward);
-      }
-      retainedSpeed = Math.max(0.18, Math.min(0.86, magnitude / Math.max(0.01, Math.abs(vehicle.speed))));
-      vehicle.speed = speedSign * magnitude;
-      if (Number.isFinite(vehicle.accel)) vehicle.accel = Math.min(vehicle.accel, 0);
-      if (Number.isFinite(vehicle.lateralAccel)) vehicle.lateralAccel *= 0.25;
-    } else if (Math.abs(vehicle.speed) < 0.8) {
-      vehicle.speed = 0;
+    // Contact point relative to the chassis centre. The probe is the body point
+    // that reached the wall; subtracting the radius places the impulse at the
+    // actual body surface.
+    const rx = contactForward.x * hit.offset - hit.normal.x * this.probeRadius;
+    const rz = contactForward.y * hit.offset - hit.normal.y * this.probeRadius;
+    let vx = velocity.x;
+    let vz = velocity.z;
+    let omega = yawRate;
+
+    let contactVX = vx + omega * rz;
+    let contactVZ = vz - omega * rx;
+    const normalVelocity = contactVX * hit.normal.x + contactVZ * hit.normal.y;
+    const impact = Math.max(0, -normalVelocity);
+
+    if (normalVelocity < -0.01) {
+      const rn = crossY(rx, rz, hit.normal.x, hit.normal.y);
+      const normalDenominator = invMass + rn * rn * invInertia;
+      const restitution = impact > 4 ? WALL_RESTITUTION : 0;
+      const normalImpulse = -(1 + restitution) * normalVelocity / Math.max(EPSILON, normalDenominator);
+      const impulseX = hit.normal.x * normalImpulse;
+      const impulseZ = hit.normal.y * normalImpulse;
+      vx += impulseX * invMass;
+      vz += impulseZ * invMass;
+      omega += crossY(rx, rz, impulseX, impulseZ) * invInertia;
+
+      // Coulomb friction at the same contact keeps glancing hits sliding along
+      // the rail while scrubbing speed instead of bouncing or sticking.
+      contactVX = vx + omega * rz;
+      contactVZ = vz - omega * rx;
+      const tangentX = -hit.normal.y;
+      const tangentZ = hit.normal.x;
+      const tangentVelocity = contactVX * tangentX + contactVZ * tangentZ;
+      const rt = crossY(rx, rz, tangentX, tangentZ);
+      const tangentDenominator = invMass + rt * rt * invInertia;
+      const rawTangentImpulse = -tangentVelocity / Math.max(EPSILON, tangentDenominator);
+      const maxFriction = WALL_FRICTION * normalImpulse;
+      const tangentImpulse = THREE.MathUtils.clamp(rawTangentImpulse, -maxFriction, maxFriction);
+      const frictionX = tangentX * tangentImpulse;
+      const frictionZ = tangentZ * tangentImpulse;
+      vx += frictionX * invMass;
+      vz += frictionZ * invMass;
+      omega += crossY(rx, rz, frictionX, frictionZ) * invInertia;
     }
 
+    writeVelocity(vehicle, vx, vz);
+    vehicle.yawRate = THREE.MathUtils.clamp(omega, -4.5, 4.5);
+    if (Number.isFinite(vehicle.accel)) vehicle.accel = Math.min(vehicle.accel, 0);
+
+    const newSpeed = Math.hypot(vx, vz);
+    const retainedSpeed = oldSpeed > EPSILON ? newSpeed / oldSpeed : 0;
     const emit = impact > 1.4 && this.elapsed - this.lastImpactAt > 0.09;
     if (emit) this.lastImpactAt = this.elapsed;
     this.previousPose = { x: vehicle.x, z: vehicle.z, heading: vehicle.heading, y: centreY };
+
     return {
       collided: true,
       emit,
