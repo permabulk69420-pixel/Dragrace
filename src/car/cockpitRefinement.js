@@ -119,26 +119,22 @@ export function refineCockpit(interior, parts) {
   interior.add(cage);
   parts.rollCage = cage;
 
-  // The original 350 mm wheel sat high enough to cover most of the instrument
-  // cluster. A small race wheel, mounted slightly lower and farther forward,
-  // keeps the gauges visible while preserving the existing steering pivot.
+  // Keep the compact wheel low enough to see the gauges, but bring it a small
+  // amount toward the driver instead of pushing it deeper into the dashboard.
   if (parts.steeringWheel) {
     const scale = 0.93;
     parts.steeringWheel.scale.setScalar(scale);
     parts.steeringWheel.position.y -= 0.035;
-    parts.steeringWheel.position.z -= 0.025;
+    parts.steeringWheel.position.z += 0.015;
     parts.steeringWheelWorldRadius *= scale;
-  }
-
-  // Raise the three primary faces just enough to read through the wheel opening.
-  for (const name of ['tacho', 'speedo', 'boost']) {
-    const gauge = interior.getObjectByName(`Gauge_${name}`);
-    if (gauge) gauge.position.y += 0.022;
   }
 
   parts.cockpitMetrics = {
     frontHeader: { ...FRONT_HEADER },
     steeringWheelRadius: parts.steeringWheelWorldRadius,
+    steeringWheelDriverOffset: 0.015,
+    mainClusterDrop: 0.025,
+    clusterVisorRemoved: true,
   };
 
   return cage;
