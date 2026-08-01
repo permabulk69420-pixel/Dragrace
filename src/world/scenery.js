@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { DRIVEABLE_HALF_WIDTH, ROAD_HALF_WIDTH } from './course.js';
 import { makeChevronTexture, makeSignTexture, seededRandom } from './materials.js';
+import { buildRoadsideDetails } from './roadsideDetails.js';
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -177,6 +178,32 @@ function buildIndustrialDistrict(root, route, materials) {
   setCount(tanks, 18);
   root.add(tanks);
 
+  const stackGeo = new THREE.CylinderGeometry(0.72, 1.05, 1, 14, 1);
+  stackGeo.translate(0, 0.5, 0);
+  const stacks = instance(stackGeo, materials.concreteDark, 12, 'IndustrialSmokestacks');
+  const beaconMaterial = new THREE.MeshStandardMaterial({
+    color: 0xff6048,
+    emissive: 0xff210d,
+    emissiveIntensity: 4.5,
+    roughness: 0.22,
+  });
+  const beaconGeo = new THREE.SphereGeometry(0.16, 12, 8);
+  const beacons = instance(beaconGeo, beaconMaterial, 12, 'IndustrialWarningBeacons');
+  for (let i = 0; i < 12; i++) {
+    const row = Math.floor(i / 4);
+    const col = i % 4;
+    const height = 17 + random() * 23;
+    const position = new THREE.Vector3(-625 + col * 44 + row * 8, 0, -385 + row * 38);
+    stacks.setMatrixAt(i, compose(position, new THREE.Vector3(1, height, 1)));
+    beacons.setMatrixAt(i, compose(
+      position.clone().add(new THREE.Vector3(0, height + 0.15, 0)),
+      new THREE.Vector3(1, 1, 1)
+    ));
+  }
+  setCount(stacks, 12);
+  setCount(beacons, 12);
+  root.add(stacks, beacons);
+
   const railMat = new THREE.MeshStandardMaterial({ color: 0x8a8f94, metalness: 0.9, roughness: 0.38 });
   for (const x of [-70, -66]) {
     const rail = mesh(new THREE.BoxGeometry(0.12, 0.11, 350), railMat, 'DockRail');
@@ -315,6 +342,20 @@ function buildStreetLights(root, route, materials) {
   setCount(tunnelFixtures, tunnelUsed);
   root.add(tunnelFixtures);
 
+  // The visible fixtures live in RoadsideDetails; registering matching light
+  // locations here lets the existing four-light pool illuminate the lower
+  // boulevard when it passes beneath the flyover.
+  for (let d = route.length * 0.245; d < route.length * 0.610; d += 34) {
+    const u = d / route.length;
+    if (u > 0.515 && u < 0.525) continue;
+    const frame = route.atDistance(d);
+    lampPositions.push({
+      position: frame.center.clone().addScaledVector(frame.normal, -1.62),
+      colour: 0x78cfff,
+      intensity: 88,
+    });
+  }
+
   // A small moving pool of real lights gives local depth without asking Quest
   // to shade the entire course against hundreds of PointLights.
   const dynamicLights = [];
@@ -381,6 +422,105 @@ function buildChevrons(root, route) {
   setCount(left, leftCount);
   setCount(right, rightCount);
   root.add(left, right);
+}
+
+function buildTrafficSignals(root, route, materials) {
+  const locations = [0.515, 0.585, 0.655, 0.895, 0.947];
+  const poleGeo = new THREE.CylinderGeometry(0.10, 0.15, 1, 8, 1);
+  poleGeo.translate(0, 0.5, 0);
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const lensGeo = new THREE.SphereGeometry(0.18, 12, 8);
+  const poles = instance(poleGeo, materials.darkMetal, locations.length * 2, 'TrafficSignalPoles');
+  const arms = instance(boxGeo, materials.darkMetal, locations.length, 'TrafficSignalCrossbars');
+  const housings = instance(boxGeo, materials.darkMetal, locations.length * 2, 'TrafficSignalHousings');
+  const redMaterial = new THREE.MeshStandardMaterial({ color: 0x77120f, emissive: 0xff261a, emissiveIntensity: 4.4, roughness: 0.22 });
+  const amberMaterial = new THREE.MeshStandardMaterial({ color: 0x7d4a09, emissive: 0xff9a16, emissiveIntensity: 1.5, roughness: 0.22 });
+  const greenMaterial = new THREE.MeshStandardMaterial({ color: 0x123a20, emissive: 0x2cff6b, emissiveIntensity: 0.18, roughness: 0.22 });
+  const reds = instance(lensGeo, redMaterial, locations.length * 2, 'TrafficSignalRedLenses');
+  const ambers = instance(lensGeo, amberMaterial, locations.length * 2, 'TrafficSignalAmberLenses');
+  const greens = instance(lensGeo, greenMaterial, locations.length * 2, 'TrafficSignalGreenLenses');
+
+  let poleCount = 0;
+  let signalCount = 0;
+  for (const fraction of locations) {
+    const d = route.length * fraction;
+    const frame = route.atDistance(d);
+    for (const side of [-1, 1]) {
+      const p = route.pointAt(d, side * 8.35, 0.16);
+      poles.setMatrixAt(poleCount++, compose(p, new THREE.Vector3(1, 6.75, 1)));
+    }
+    const crossbar = frame.center.clone().addScaledVector(frame.normal, 6.55);
+    arms.setMatrixAt(signalCount / 2, compose(crossbar, new THREE.Vector3(17.2, 0.20, 0.20), frame.heading));
+
+    for (const lateral of [-2.65, 2.65]) {
+      const housing = route.pointAt(d, lateral, 5.72);
+      housings.setMatrixAt(signalCount, compose(housing, new THREE.Vector3(0.68, 1.72, 0.42), frame.heading));
+      for (const [lights, height] of [[reds, 6.24], [ambers, 5.72], [greens, 5.20]]) {
+        const lens = route.pointAt(d, lateral, height).addScaledVector(frame.tangent, -0.25);
+        lights.setMatrixAt(signalCount, compose(lens, new THREE.Vector3(1, 1, 0.48), frame.heading));
+      }
+      signalCount++;
+    }
+  }
+  setCount(poles, poleCount);
+  setCount(arms, locations.length);
+  setCount(housings, signalCount);
+  setCount(reds, signalCount);
+  setCount(ambers, signalCount);
+  setCount(greens, signalCount);
+  root.add(poles, arms, housings, reds, ambers, greens);
+}
+
+function buildTunnelPortals(root, route, materials) {
+  const distances = [0.696 * route.length, 0.804 * route.length];
+  const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+  const concrete = instance(blockGeo, materials.concreteDark, 6, 'TunnelPortalConcrete', { receive: true });
+  const warnings = instance(blockGeo, materials.warning, 8, 'TunnelPortalWarningStripes');
+  const signMaterial = new THREE.MeshBasicMaterial({
+    map: makeSignTexture('HARBOR TUNNEL', { sub: 'KEEP LEFT · LIGHTS ON', colour: '#ffb52d' }),
+    toneMapped: false,
+  });
+  const signs = instance(new THREE.PlaneGeometry(1, 1), signMaterial, 2, 'TunnelPortalSigns');
+  const dummy = new THREE.Object3D();
+  let concreteCount = 0;
+  let warningCount = 0;
+  distances.forEach((distance, index) => {
+    const frame = route.atDistance(distance);
+    for (const side of [-1, 1]) {
+      const base = route.pointAt(distance, side * 8.35, 0);
+      concrete.setMatrixAt(concreteCount++, compose(
+        base.clone().addScaledVector(frame.normal, 3.05),
+        new THREE.Vector3(1.05, 6.1, 1.5),
+        frame.heading
+      ));
+      for (const height of [1.1, 4.6]) {
+        warnings.setMatrixAt(warningCount++, compose(
+          base.clone().addScaledVector(frame.normal, height).addScaledVector(frame.tangent, -0.78),
+          new THREE.Vector3(1.14, 0.24, 0.12),
+          frame.heading
+        ));
+      }
+    }
+    concrete.setMatrixAt(concreteCount++, compose(
+      frame.center.clone().addScaledVector(frame.normal, 7.2),
+      new THREE.Vector3(17.8, 1.45, 1.5),
+      frame.heading
+    ));
+
+    const signPosition = frame.center.clone()
+      .addScaledVector(frame.normal, 7.18)
+      .addScaledVector(frame.tangent, -0.78);
+    dummy.position.copy(signPosition);
+    dummy.up.copy(frame.normal);
+    dummy.lookAt(signPosition.clone().addScaledVector(frame.tangent, -10));
+    dummy.scale.set(10.8, 1.65, 1);
+    dummy.updateMatrix();
+    signs.setMatrixAt(index, dummy.matrix);
+  });
+  setCount(concrete, concreteCount);
+  setCount(warnings, warningCount);
+  setCount(signs, 2);
+  root.add(concrete, warnings, signs);
 }
 
 function buildBillboards(root, route, materials, animatedMaterials) {
@@ -582,13 +722,18 @@ export function buildScenery(route, materials) {
   buildViaductSupports(root, route, materials);
   const streetLights = buildStreetLights(root, route, materials);
   buildChevrons(root, route);
+  buildTrafficSignals(root, route, materials);
+  buildTunnelPortals(root, route, materials);
   buildBillboards(root, route, materials, animatedMaterials);
   buildNeonStorefronts(root, route, animatedMaterials);
+  const roadsideDetails = buildRoadsideDetails(route, materials);
+  root.add(roadsideDetails.object);
   const startLights = buildStartGantry(root, route, materials, animatedMaterials);
   const scoreboard = createRaceBoard(root, route, materials);
 
   function update(time, playerPosition) {
     streetLights.update(playerPosition);
+    roadsideDetails.update(time);
     for (let i = 0; i < animatedMaterials.length; i++) {
       const material = animatedMaterials[i];
       if ('emissiveIntensity' in material) material.emissiveIntensity = 0.42 + Math.sin(time * 1.7 + i * 1.91) * 0.09;
@@ -605,6 +750,7 @@ export function buildScenery(route, materials) {
     startLights,
     scoreboard,
     update,
+    emitImpact: roadsideDetails.emitImpact,
     lampCount: streetLights.lampCount,
   };
 }

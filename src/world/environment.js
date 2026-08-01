@@ -29,6 +29,35 @@ function skyCanvas() {
     g.fillRect(0, 80, 1024, 360);
   }
 
+  // A far-off skyline is baked into the environment map. It fills gaps
+  // between the real building clusters and gives every horizon direction the
+  // same dense metropolitan read without adding draw calls.
+  g.fillStyle = '#050812';
+  let skylineX = 0;
+  while (skylineX < 1024) {
+    const width = 7 + random() * 22;
+    const height = 7 + Math.pow(random(), 2.1) * 58;
+    g.fillRect(skylineX, 286 - height, width, height + 22);
+    if (height > 26 && random() > 0.58) {
+      g.fillStyle = random() > 0.5 ? '#b87539' : '#456b91';
+      g.globalAlpha = 0.32;
+      for (let wy = 274 - height; wy < 276; wy += 7) {
+        for (let wx = skylineX + 3; wx < skylineX + width - 2; wx += 6) {
+          if (random() > 0.62) g.fillRect(wx, wy, 2, 2);
+        }
+      }
+      g.globalAlpha = 1;
+      g.fillStyle = '#050812';
+    }
+    skylineX += width + 1 + random() * 4;
+  }
+  for (const [y, colour, alpha] of [[287, '#ff8b45', 0.22], [292, '#4e8fff', 0.12]]) {
+    g.fillStyle = colour;
+    g.globalAlpha = alpha;
+    g.fillRect(0, y, 1024, 2);
+  }
+  g.globalAlpha = 1;
+
   // Long cloud bands catch a little city light without making a bright sky.
   g.globalAlpha = 0.2;
   for (let i = 0; i < 30; i++) {

@@ -11,6 +11,18 @@ export const ROAD_HALF_WIDTH = 6.6;
 export const SHOULDER_WIDTH = 1.35;
 export const DRIVEABLE_HALF_WIDTH = ROAD_HALF_WIDTH + SHOULDER_WIDTH;
 
+// These ranges are shared by barrier geometry and the vehicle-agnostic world
+// collision resolver. Keeping one source of truth prevents an invisible wall
+// from drifting away from the roadside object that the driver can see.
+export const BARRIER_RANGES = Object.freeze([
+  Object.freeze([0.018, 0.238]),
+  Object.freeze([0.238, 0.525]),
+  Object.freeze([0.525, 0.610]),
+  Object.freeze([0.645, 0.700]),
+  Object.freeze([0.800, 0.875]),
+]);
+export const TUNNEL_RANGE = Object.freeze([0.696, 0.804]);
+
 // Hand-authored in metres.  The broad radii suit a fast street car while the
 // elevation profile creates a dockside climb, high viaduct and tunnel descent.
 export const COURSE_CONTROL_POINTS = Object.freeze([

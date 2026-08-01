@@ -37,6 +37,7 @@ export function ribbonGeometry(route, {
   uvMetres = 10,
   name = 'RoadRibbon',
   include = always,
+  underside = false,
 } = {}) {
   const out = buffers();
   for (let i = 0; i < route.sampleCount; i++) {
@@ -52,7 +53,13 @@ export function ribbonGeometry(route, {
     const bRight = b.center.clone().addScaledVector(b.right, offset + width / 2).addScaledVector(b.normal, lift);
     const v0 = a.distance / uvMetres;
     const v1 = b.distance / uvMetres;
-    addQuad(out, aLeft, aRight, bRight, bLeft, a.normal, b.normal, [0, v0, 1, v0, 1, v1, 0, v1]);
+    if (underside) {
+      const aDown = a.normal.clone().negate();
+      const bDown = b.normal.clone().negate();
+      addQuad(out, aRight, aLeft, bLeft, bRight, aDown, bDown, [1, v0, 0, v0, 0, v1, 1, v1]);
+    } else {
+      addQuad(out, aLeft, aRight, bRight, bLeft, a.normal, b.normal, [0, v0, 1, v0, 1, v1, 0, v1]);
+    }
   }
   return finish(out, name);
 }
@@ -114,8 +121,8 @@ export function fasciaGeometry(route, {
     if (!include(midU, route.length * midU, i)) continue;
     const at = a.center.clone().addScaledVector(a.right, offset).addScaledVector(a.normal, -0.08);
     const bt = b.center.clone().addScaledVector(b.right, offset).addScaledVector(b.normal, -0.08);
-    const ab = at.clone().add(new THREE.Vector3(0, -depth, 0));
-    const bb = bt.clone().add(new THREE.Vector3(0, -depth, 0));
+    const ab = at.clone().addScaledVector(a.normal, -depth);
+    const bb = bt.clone().addScaledVector(b.normal, -depth);
     if (offset < 0) addQuad(out, at, bt, bb, ab);
     else addQuad(out, ab, bb, bt, at);
   }

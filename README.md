@@ -21,14 +21,25 @@ the preview car without rebuilding the course.
 - Layered asphalt, shoulders, reflective double centre lines, edge paint,
   direction arrows, city sidewalks, selective red/white apex kerbs and a full
   start grid.
+- World-owned collision at the visible inner faces of Jersey barriers and
+  harbour-tunnel walls, with angle-sensitive deflection, speed loss and pooled
+  impact sparks. Open street edges remain intentionally open.
+- Bump- and roughness-mapped asphalt with repair patches, braking rubber,
+  puddles, manholes, storm drains, expansion joints and hundreds of reflective
+  lane and edge studs.
 - Dockyards with stacked containers, warehouses, storage tanks, rail lines and
   three container cranes.
-- Elevated skyway with a structural deck, fascia, concrete supports, protected
-  edges and a 35 m high point.
+- Elevated skyway with a closed concrete slab, true downward-facing soffit,
+  steel webs and flanges, crossbeams, piers, underdeck lights, graffiti,
+  protected edges and a 35 m high point.
 - Enclosed harbour tunnel with concrete shell, lower wall bands, cool ceiling
-  fixtures and local light pools.
+  fixtures, structural arch ribs, cable trays, emergency markers, detailed
+  portals and local light pools.
 - Instanced skyline, rooftop machinery, mountain silhouettes, street lamps,
-  chevrons, barrier panels and industrial props.
+  chevrons, barrier panels, chain-link fencing, utility lines, traffic signals,
+  boulevard trees, street furniture and industrial props.
+- Route-hugging street-front buildings with lit ground-floor glazing and
+  awnings add depth to the downtown and final boulevard districts.
 - Fictional period-style billboards, neon storefronts, start/finish gantry,
   grid lights and a live course scoreboard.
 - Procedural night sky, city glow, stars, fog, reflection environment and a
@@ -81,19 +92,25 @@ no dependency on the car, vehicle physics, DOM or renderer.
 ```js
 import { buildTrack } from './world/track.js';
 
-const track = buildTrack();
+// The optional half-width controls clearance from the vehicle centre to a
+// visible wall. The 1.06 m default matches the included preview car.
+const track = buildTrack({ collisionVehicleHalfWidth: 1.06 });
 scene.add(track.object);
 
 // Place any vehicle on the grid.
-vehicle.position.copy(track.spawn.position);
-vehicle.rotation.y = track.spawn.heading;
+vehicle.x = track.spawn.position.x;
+vehicle.z = track.spawn.position.z;
+vehicle.heading = track.spawn.heading;
 
-// Follow road elevation/banking or drive a collision/traction system.
-const road = track.surfaceAt(vehicle.position.x, vehicle.position.z, previousRouteDistance);
-vehicle.position.y = road.height;
+// Resolve a plain mutable vehicle pose against barriers and tunnel walls.
+// Contract: x, z, heading and speed; no dependency on this project's car.
+const hit = track.resolveVehicle(vehicle, previousRouteDistance, deltaTime);
+const road = hit.road;
+renderedVehicle.position.set(vehicle.x, road.height, vehicle.z);
 // road.tangent, road.normal, road.bank, road.pitch, road.lateral,
-// road.onRoad and road.onDriveableSurface are also available. The optional
-// route-distance hint keeps stacked flyover and lower-road queries distinct.
+// road.onRoad and road.onDriveableSurface are available. The route-distance
+// hint keeps stacked flyover and lower-road queries distinct. hit.impact and
+// hit.zone describe a contact; the world emits rendering feedback itself.
 
 // Updates nearest local lights and subtle neon/water animation.
 track.update(elapsedTime, vehicle.position);
@@ -122,9 +139,11 @@ behaviour are preserved.
 src/
   world/
     course.js          pure route, frames, spawn and nearest-surface queries
+    courseCollision.js visible barrier/tunnel collision for any plain vehicle pose
     roadGeometry.js    ribbons, barriers, fascia and tunnel sweep geometry
     materials.js       procedural textures and shared materials
     scenery.js         instanced city, dock, lighting, signs and hero props
+    roadsideDetails.js road wear, street props, tunnel detail and impact effects
     track.js           assembles the complete world and integration API
     environment.js     night sky, fog, IBL and broad lighting
     circuitRace.js     vehicle-agnostic lap progress and timing
@@ -142,13 +161,14 @@ and instance matrices for non-finite values.
 
 | Component | Mesh draws | Rendered triangles |
 |---|---:|---:|
-| Course and environment | 86 | 49,007 |
+| Course and environment | 130 | 110,719 |
 | Existing car | 164 | 59,850 |
-| Estimated combined scene | 250 | 108,857 |
+| Estimated combined scene | 294 | 170,569 |
 
-Repeated scenery accounts for **1,602 instances**. Geometry is intentionally
-simple where motion makes silhouette more important than tessellation, while
-hero signs, the start gantry, cranes and tunnel receive the extra detail.
+Repeated scenery accounts for **4,509 instances**. The visual pass favours
+instancing over flattening detail away, so road studs, tunnel ribs, trees,
+street furniture and structural parts remain legible while the draw-call total
+stays inside the project's Quest guard.
 
 ## Checks and deployment
 
@@ -162,14 +182,15 @@ The checks cover:
 - all original car hierarchy, scale, draw-call and triangle budgets;
 - original drag physics, timing and frame-rate independence;
 - course length, elevation, grade, checkpoints and road-surface queries;
+- barrier deflection, collision speed loss, open roadside sections and tunnel
+  wall collision;
+- a finite, explicitly downward-facing overpass soffit;
 - complete world construction, required landmarks, finite geometry and
   instance matrices, plus world draw-call/triangle budgets.
 
 Pushes to `main`, `claude/**` and `agent/**` build through GitHub Actions.
-`main` and `claude/**` also deploy; the repository's `github-pages` environment
-currently rejects `agent/**` at its branch-protection gate. Add `agent/**` to
-that environment's deployment-branch allowlist to enable this branch preview.
-Pull requests build and run the checks without deploying.
+Only `main` publishes the live GitHub Pages site; feature branches and pull
+requests build and run the checks without replacing the live deployment.
 
 ## Licence
 

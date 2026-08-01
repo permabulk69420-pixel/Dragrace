@@ -167,6 +167,108 @@ function glowTexture(colour = '#ffae57') {
   return textureFromCanvas(c, { repeat: false });
 }
 
+function noiseTexture(seed, {
+  size = 256,
+  base = 128,
+  spread = 42,
+} = {}) {
+  const c = canvas(size);
+  const g = c.getContext('2d');
+  const random = seededRandom(seed);
+  const image = g.getImageData(0, 0, size, size);
+  for (let i = 0; i < image.data.length; i += 4) {
+    const value = Math.max(0, Math.min(255, base + (random() - 0.5) * spread));
+    image.data[i] = value;
+    image.data[i + 1] = value;
+    image.data[i + 2] = value;
+    image.data[i + 3] = 255;
+  }
+  g.putImageData(image, 0, 0);
+  return textureFromCanvas(c, { srgb: false });
+}
+
+function fenceTexture() {
+  const c = canvas(128);
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 128, 128);
+  g.strokeStyle = 'rgba(185,204,213,.9)';
+  g.lineWidth = 3;
+  for (let i = -128; i < 256; i += 18) {
+    g.beginPath();
+    g.moveTo(i, 0);
+    g.lineTo(i + 128, 128);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(i, 128);
+    g.lineTo(i + 128, 0);
+    g.stroke();
+  }
+  return textureFromCanvas(c, { srgb: false });
+}
+
+function storefrontTexture() {
+  const colour = document.createElement('canvas');
+  colour.width = 512;
+  colour.height = 256;
+  const emissive = document.createElement('canvas');
+  emissive.width = 512;
+  emissive.height = 256;
+  const cg = colour.getContext('2d');
+  const eg = emissive.getContext('2d');
+  cg.fillStyle = '#11151c';
+  cg.fillRect(0, 0, 512, 256);
+  eg.fillStyle = '#000';
+  eg.fillRect(0, 0, 512, 256);
+  for (let bay = 0; bay < 5; bay++) {
+    const x = 12 + bay * 100;
+    const tint = bay % 3 === 0 ? '#3eb9d5' : bay % 3 === 1 ? '#d97a44' : '#b550a5';
+    cg.fillStyle = '#263544';
+    cg.fillRect(x, 42, 86, 181);
+    cg.fillStyle = tint;
+    cg.globalAlpha = 0.55;
+    cg.fillRect(x + 5, 48, 76, 116);
+    cg.globalAlpha = 1;
+    cg.fillStyle = '#090c11';
+    cg.fillRect(x + 39, 48, 5, 175);
+    cg.fillRect(x + 5, 161, 76, 7);
+    eg.fillStyle = tint;
+    eg.globalAlpha = 0.78;
+    eg.fillRect(x + 5, 48, 76, 116);
+    eg.globalAlpha = 1;
+  }
+  cg.fillStyle = '#080a0e';
+  cg.fillRect(0, 0, 512, 28);
+  return {
+    map: textureFromCanvas(colour, { repeat: false }),
+    emissiveMap: textureFromCanvas(emissive, { repeat: false, srgb: false }),
+  };
+}
+
+function graffitiTexture() {
+  const c = document.createElement('canvas');
+  c.width = 768;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 768, 256);
+  g.lineJoin = 'round';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = '900 italic 142px ui-sans-serif, system-ui, sans-serif';
+  g.lineWidth = 24;
+  g.strokeStyle = '#11121a';
+  g.strokeText('NIGHT RUN', 384, 132);
+  const fill = g.createLinearGradient(100, 30, 660, 220);
+  fill.addColorStop(0, '#35d9ff');
+  fill.addColorStop(0.5, '#9b5cff');
+  fill.addColorStop(1, '#ff4d79');
+  g.fillStyle = fill;
+  g.fillText('NIGHT RUN', 384, 132);
+  g.strokeStyle = '#e5fbff';
+  g.lineWidth = 4;
+  g.strokeText('NIGHT RUN', 384, 132);
+  return textureFromCanvas(c, { repeat: false });
+}
+
 export function makeSignTexture(text, {
   sub = '',
   colour = '#ff5b2e',
@@ -231,19 +333,43 @@ export function createWorldMaterials() {
   const concrete = concreteTexture();
   const ground = groundTexture();
   const facades = facadeTextures();
+  const storefronts = storefrontTexture();
+  const asphaltBump = noiseTexture(0xa512b00, { base: 124, spread: 78 });
+  const asphaltRoughness = noiseTexture(0xa512f00, { base: 208, spread: 68 });
+  const concreteBump = noiseTexture(0xc0acb00, { base: 128, spread: 34 });
 
   return {
-    road: new THREE.MeshStandardMaterial({ color: 0xb9c0c9, map: asphalt, roughness: 0.79, metalness: 0.07 }),
-    shoulder: new THREE.MeshStandardMaterial({ color: 0x30343b, map: asphalt, roughness: 0.93, metalness: 0.02 }),
+    road: new THREE.MeshStandardMaterial({
+      color: 0xb9c0c9,
+      map: asphalt,
+      bumpMap: asphaltBump,
+      bumpScale: 0.075,
+      roughnessMap: asphaltRoughness,
+      roughness: 0.94,
+      metalness: 0.07,
+    }),
+    shoulder: new THREE.MeshStandardMaterial({
+      color: 0x30343b,
+      map: asphalt,
+      bumpMap: asphaltBump,
+      bumpScale: 0.11,
+      roughnessMap: asphaltRoughness,
+      roughness: 1,
+      metalness: 0.02,
+    }),
     laneWhite: new THREE.MeshStandardMaterial({ color: 0xf4f6ee, roughness: 0.55, emissive: 0x32342f, emissiveIntensity: 0.45 }),
     laneYellow: new THREE.MeshStandardMaterial({ color: 0xffc332, roughness: 0.55, emissive: 0x4d3200, emissiveIntensity: 0.7 }),
     curbRed: new THREE.MeshStandardMaterial({ color: 0xc92c2b, roughness: 0.75 }),
     curbWhite: new THREE.MeshStandardMaterial({ color: 0xe5e5df, roughness: 0.75 }),
-    concrete: new THREE.MeshStandardMaterial({ color: 0xb0b2b4, map: concrete, roughness: 0.91, metalness: 0.02 }),
-    concreteDark: new THREE.MeshStandardMaterial({ color: 0x555a61, map: concrete, roughness: 0.94 }),
+    concrete: new THREE.MeshStandardMaterial({ color: 0xb0b2b4, map: concrete, bumpMap: concreteBump, bumpScale: 0.055, roughness: 0.91, metalness: 0.02 }),
+    concreteDark: new THREE.MeshStandardMaterial({ color: 0x555a61, map: concrete, bumpMap: concreteBump, bumpScale: 0.065, roughness: 0.94 }),
+    underDeck: new THREE.MeshStandardMaterial({ color: 0x6a6c70, map: concrete, bumpMap: concreteBump, bumpScale: 0.085, roughness: 0.92, metalness: 0.03 }),
+    girder: new THREE.MeshStandardMaterial({ color: 0x252a30, roughness: 0.52, metalness: 0.78 }),
+    curbFace: new THREE.MeshStandardMaterial({ color: 0x8e9297, map: concrete, bumpMap: concreteBump, bumpScale: 0.04, roughness: 0.9 }),
     barrierStripe: new THREE.MeshStandardMaterial({ color: 0xc62828, roughness: 0.65, emissive: 0x220000 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x303741, roughness: 0.55, metalness: 0.72 }),
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x11161c, roughness: 0.65, metalness: 0.55 }),
+    tunnelRib: new THREE.MeshStandardMaterial({ color: 0x343a42, roughness: 0.48, metalness: 0.76 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xffe1a0, emissive: 0xffa342, emissiveIntensity: 5.5, roughness: 0.25 }),
     coolLamp: new THREE.MeshStandardMaterial({ color: 0xd8f1ff, emissive: 0x80cfff, emissiveIntensity: 5.0, roughness: 0.25 }),
     ground: new THREE.MeshStandardMaterial({ color: 0x364038, map: ground, roughness: 1 }),
@@ -262,6 +388,60 @@ export function createWorldMaterials() {
     roof: new THREE.MeshStandardMaterial({ color: 0x11161d, roughness: 0.88, metalness: 0.2 }),
     tunnel: new THREE.MeshStandardMaterial({ color: 0x6b7078, map: concrete, roughness: 0.86, side: THREE.DoubleSide }),
     water: new THREE.MeshStandardMaterial({ color: 0x071e2b, roughness: 0.26, metalness: 0.32, transparent: true, opacity: 0.94 }),
+    roadPatch: new THREE.MeshStandardMaterial({
+      color: 0x555b62,
+      map: asphalt,
+      bumpMap: asphaltBump,
+      bumpScale: 0.1,
+      roughness: 0.9,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+    }),
+    skid: new THREE.MeshStandardMaterial({
+      color: 0x060608,
+      transparent: true,
+      opacity: 0.58,
+      roughness: 0.58,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+    }),
+    wetRoad: new THREE.MeshStandardMaterial({
+      color: 0x0f1a22,
+      transparent: true,
+      opacity: 0.46,
+      roughness: 0.16,
+      metalness: 0.42,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -5,
+    }),
+    drain: new THREE.MeshStandardMaterial({ color: 0x1d2227, roughness: 0.42, metalness: 0.86 }),
+    manhole: new THREE.MeshStandardMaterial({ color: 0x25292d, roughness: 0.52, metalness: 0.74 }),
+    reflectorWhite: new THREE.MeshStandardMaterial({ color: 0xdff8ff, emissive: 0xb8efff, emissiveIntensity: 2.8, roughness: 0.28 }),
+    reflectorAmber: new THREE.MeshStandardMaterial({ color: 0xffb329, emissive: 0xff7a0d, emissiveIntensity: 3.1, roughness: 0.28 }),
+    fence: new THREE.MeshStandardMaterial({
+      color: 0x9aabb2,
+      map: fenceTexture(),
+      alphaTest: 0.25,
+      transparent: true,
+      side: THREE.DoubleSide,
+      roughness: 0.55,
+      metalness: 0.72,
+    }),
+    treeTrunk: new THREE.MeshStandardMaterial({ color: 0x3b2b24, roughness: 1 }),
+    foliage: new THREE.MeshStandardMaterial({ color: 0x18372b, roughness: 0.92 }),
+    storefront: new THREE.MeshStandardMaterial({
+      color: 0x95b8c7,
+      map: storefronts.map,
+      emissive: 0xffffff,
+      emissiveMap: storefronts.emissiveMap,
+      emissiveIntensity: 0.95,
+      roughness: 0.35,
+      metalness: 0.12,
+    }),
+    graffiti: new THREE.MeshBasicMaterial({ map: graffitiTexture(), transparent: true, toneMapped: false, side: THREE.DoubleSide }),
+    warning: new THREE.MeshStandardMaterial({ color: 0xf0b51e, emissive: 0x5c3000, emissiveIntensity: 0.8, roughness: 0.54 }),
     sodiumGlow: new THREE.MeshBasicMaterial({
       map: glowTexture('#ff9b42'),
       transparent: true,
