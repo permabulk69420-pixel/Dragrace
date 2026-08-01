@@ -27,9 +27,13 @@ car.updateMatrixWorld(true);
 const required = [
   'CarRoot', 'PitchPivot', 'Sprung', 'DriverAnchor',
   'Suspension_FL', 'Steer_FL', 'Spin_FL', 'Spin_RR',
-  'SteeringWheel', 'Shifter', 'Pedal_throttle', 'Needle_tacho', 'BodyShell',
+  'SteeringWheel', 'Shifter', 'Pedal_throttle', 'BodyShell',
 ];
 for (const name of required) check(`node ${name}`, !!car.getObjectByName(name));
+check('procedural primary gauge cluster is absent',
+  ['tacho', 'speedo', 'boost'].every((name) => !car.getObjectByName(`Gauge_${name}`)));
+check('raw dash is ready for later GLB instruments',
+  parts.cockpitMetrics?.rawDashReadyForGlbInstruments === true);
 
 let meshes = 0, triangles = 0;
 car.traverse((o) => {
