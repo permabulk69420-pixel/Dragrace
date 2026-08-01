@@ -211,6 +211,7 @@ function resetCar() {
   race.remember();
   vehicle.reset(track.spawn.position.z, track.spawn.position.x);
   vehicle.heading = track.spawn.heading;
+  track.resetCollisions();
   race.reset();
   car.root.position.copy(track.spawn.position);
   car.root.rotation.set(track.spawn.pitch, track.spawn.heading, track.spawn.roll, 'YXZ');
@@ -263,10 +264,12 @@ renderer.setAnimationLoop(() => {
 
   // --- simulate ------------------------------------------------------------
   vehicle.update(dt);
-  race.update(vehicle, dt);
+  const routeHint = race.currentInfo?.distance ?? race.lastRouteDistance;
+  const collision = track.resolveVehicle(vehicle, routeHint, dt);
+  race.update(vehicle, dt, collision.road);
 
   // --- place the car -------------------------------------------------------
-  const road = race.currentInfo ?? track.surfaceAt(vehicle.x, vehicle.z);
+  const road = collision.road ?? race.currentInfo ?? track.surfaceAt(vehicle.x, vehicle.z);
   const supported = Math.abs(road.lateral) < track.driveableHalfWidth + 3.0;
   if (!road.onDriveableSurface) {
     // Grass, gravel and dock aprons scrub speed in the preview integration.

@@ -8,11 +8,14 @@
  */
 import * as THREE from 'three';
 import {
+  BARRIER_RANGES,
   courseRoute,
   DRIVEABLE_HALF_WIDTH,
   ROAD_HALF_WIDTH,
   SHOULDER_WIDTH,
+  TUNNEL_RANGE,
 } from './course.js';
+import { COURSE_COLLISION_ZONES, CourseCollision } from './courseCollision.js';
 import { createWorldMaterials } from './materials.js';
 import {
   barrierGeometry,
@@ -104,27 +107,60 @@ function buildDirectionArrows(route, material) {
 }
 
 function buildRoadSurface(root, route, materials) {
-  // Structural deck below the elevated highway portion.
+  // Structural deck below the elevated highway portion. The explicit
+  // downward-facing soffit closes the slab when seen from the lower boulevard;
+  // a top-only road ribbon disappears because normal road materials are
+  // intentionally front-sided.
   const skyway = inRanges([[0.235, 0.515], [0.525, 0.610]]);
+  const deckWidth = (DRIVEABLE_HALF_WIDTH + 1.6) * 2;
   root.add(roadMesh(ribbonGeometry(route, {
-    width: (DRIVEABLE_HALF_WIDTH + 1.6) * 2,
-    lift: -0.68,
+    width: deckWidth,
+    lift: -0.08,
     uvMetres: 8,
     name: 'ViaductDeck',
     include: skyway,
   }), materials.concreteDark, 'ViaductDeck'));
+  root.add(roadMesh(ribbonGeometry(route, {
+    width: deckWidth,
+    lift: -1.43,
+    uvMetres: 7,
+    underside: true,
+    name: 'ViaductUnderside',
+    include: skyway,
+  }), materials.underDeck, 'ViaductUnderside'));
   root.add(roadMesh(fasciaGeometry(route, {
-    offset: -(DRIVEABLE_HALF_WIDTH + 1.55),
+    offset: -deckWidth / 2,
     depth: 1.35,
     include: skyway,
     name: 'ViaductFasciaLeft',
   }), materials.concreteDark, 'ViaductFasciaLeft'));
   root.add(roadMesh(fasciaGeometry(route, {
-    offset: DRIVEABLE_HALF_WIDTH + 1.55,
+    offset: deckWidth / 2,
     depth: 1.35,
     include: skyway,
     name: 'ViaductFasciaRight',
   }), materials.concreteDark, 'ViaductFasciaRight'));
+
+  // Three continuous steel webs and lower flanges make the bridge silhouette
+  // read as a supported structure rather than a floating textured plane.
+  for (const [index, offset] of [-5.15, 0, 5.15].entries()) {
+    root.add(roadMesh(verticalRibbonGeometry(route, {
+      offset,
+      bottom: -2.06,
+      height: 0.62,
+      include: skyway,
+      name: `ViaductGirderWeb_${index}`,
+    }), materials.girder, `ViaductGirderWeb_${index}`));
+    root.add(roadMesh(ribbonGeometry(route, {
+      width: 0.62,
+      offset,
+      lift: -2.08,
+      underside: true,
+      uvMetres: 4,
+      include: skyway,
+      name: `ViaductGirderFlange_${index}`,
+    }), materials.girder, `ViaductGirderFlange_${index}`));
+  }
 
   // Shoulders are laid first, then the main carriageway slightly above them.
   root.add(roadMesh(ribbonGeometry(route, {
@@ -174,6 +210,13 @@ function buildRoadSurface(root, route, materials) {
       name: `Sidewalk_${side}`,
       include: city,
     }), materials.concrete, `Sidewalk_${side}`, 2));
+    root.add(roadMesh(verticalRibbonGeometry(route, {
+      offset: side * (DRIVEABLE_HALF_WIDTH - 0.20),
+      bottom: 0.025,
+      height: 0.15,
+      include: city,
+      name: `SidewalkCurbFace_${side}`,
+    }), materials.curbFace, `SidewalkCurbFace_${side}`, 3));
   }
 
   // Red/white apex kerbs mark the important corner complexes without turning
@@ -201,13 +244,7 @@ function buildRoadSurface(root, route, materials) {
 }
 
 function buildSafetyAndTunnel(root, route, materials) {
-  const protectedRoad = inRanges([
-    [0.018, 0.238],
-    [0.238, 0.525],
-    [0.525, 0.610],
-    [0.645, 0.700],
-    [0.800, 0.875],
-  ]);
+  const protectedRoad = inRanges(BARRIER_RANGES);
   for (const side of [-1, 1]) {
     root.add(roadMesh(barrierGeometry(route, {
       offset: side * (DRIVEABLE_HALF_WIDTH + 0.52),
@@ -226,15 +263,15 @@ function buildSafetyAndTunnel(root, route, materials) {
   }
 
   const tunnel = roadMesh(tunnelGeometry(route, {
-    start: 0.696,
-    end: 0.804,
+    start: TUNNEL_RANGE[0],
+    end: TUNNEL_RANGE[1],
   }), materials.tunnel, 'HarbourTunnelShell', 1);
   tunnel.castShadow = false;
   tunnel.receiveShadow = true;
   root.add(tunnel);
 
   // Dark lower wall band makes speed legible inside the tunnel.
-  const tunnelRange = inRanges([[0.696, 0.804]]);
+  const tunnelRange = inRanges([TUNNEL_RANGE]);
   for (const side of [-1, 1]) {
     root.add(roadMesh(verticalRibbonGeometry(route, {
       offset: side * 8.74,
@@ -246,7 +283,7 @@ function buildSafetyAndTunnel(root, route, materials) {
   }
 }
 
-export function buildTrack() {
+export function buildTrack({ collisionVehicleHalfWidth = 1.06 } = {}) {
   const root = new THREE.Group();
   root.name = 'MidnightCircuitWorld';
   const route = courseRoute;
@@ -256,6 +293,7 @@ export function buildTrack() {
   buildSafetyAndTunnel(root, route, materials);
   const scenery = buildScenery(route, materials);
   root.add(scenery.object);
+  const collisions = new CourseCollision(route, { vehicleHalfWidth: collisionVehicleHalfWidth });
 
   return {
     object: root,
@@ -266,11 +304,20 @@ export function buildTrack() {
     scoreboard: scenery.scoreboard,
     roadHalfWidth: ROAD_HALF_WIDTH,
     driveableHalfWidth: DRIVEABLE_HALF_WIDTH,
+    collisionZones: COURSE_COLLISION_ZONES,
     update(time, playerPosition) {
       scenery.update(time, playerPosition);
     },
     surfaceAt(x, z, hintDistance = null) {
       return route.nearest(x, z, hintDistance);
+    },
+    resolveVehicle(vehicle, hintDistance = null, dt = 0) {
+      const result = collisions.resolve(vehicle, hintDistance, dt);
+      if (result.emit) scenery.emitImpact?.(result);
+      return result;
+    },
+    resetCollisions() {
+      collisions.reset();
     },
     stats: {
       lengthMetres: route.length,

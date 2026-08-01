@@ -43,9 +43,9 @@ export class CircuitRace {
   /**
    * Vehicle contract: plain `x`, `z`, `heading`, `speed` and `speedMph` values.
    */
-  update(vehicle, dt) {
+  update(vehicle, dt, resolvedRoad = null) {
     const hint = this.currentInfo?.distance ?? this.lastRouteDistance;
-    const info = this.route.nearest(vehicle.x, vehicle.z, hint);
+    const info = resolvedRoad ?? this.route.nearest(vehicle.x, vehicle.z, hint);
     this.currentInfo = info;
     const forwardX = -Math.sin(vehicle.heading);
     const forwardZ = -Math.cos(vehicle.heading);
