@@ -46,7 +46,7 @@ check('collector uses structural geometry and rejects overhead pieces',
   colliders.length === 2,
   `${colliders.length} colliders`);
 
-const world = buildStaticCollisionWorld(root);
+const world = buildStaticCollisionWorld(root, { includeCourseBoundaries: false });
 const vehicle = {
   x: 8,
   z: 0,
@@ -110,7 +110,7 @@ function outwardHeading(frame) {
   };
 }
 
-function crossVisibleBoundary(fraction, expectedKind) {
+function crossVisibleBoundary(fraction) {
   const distance = courseRoute.length * fraction;
   const frame = courseRoute.atDistance(distance);
   const { heading } = outwardHeading(frame);
@@ -132,13 +132,13 @@ function crossVisibleBoundary(fraction, expectedKind) {
   return { hit, road, movingVehicle };
 }
 
-const concreteHit = crossVisibleBoundary(0.34, 'barrier');
+const concreteHit = crossVisibleBoundary(0.34);
 check('concrete barrier collision uses its rendered world position',
   concreteHit.hit.collided && concreteHit.hit.collider?.kind === 'barrier' &&
   concreteHit.road.lateral > 6.0 && concreteHit.road.lateral < 8.2,
   `${concreteHit.hit.collider?.kind ?? 'none'} at ${concreteHit.road.lateral.toFixed(2)} m`);
 
-const guardrailHit = crossVisibleBoundary(0.625, 'guardrail');
+const guardrailHit = crossVisibleBoundary(0.625);
 check('steel guardrail collision uses its rendered world position',
   guardrailHit.hit.collided && guardrailHit.hit.collider?.kind === 'guardrail' &&
   guardrailHit.road.lateral > 6.0 && guardrailHit.road.lateral < 8.4,
