@@ -116,18 +116,12 @@ function dashboard(M, parts) {
   // edge, otherwise it ends up buried inside the dash and invisible.
   const FACE_Z = -0.465;
 
-  // Pod carrying the main dials, standing proud of the dash top so the cluster
-  // is readable over the rim of the wheel.
+  // Compact backing pod for the three main dials. It deliberately has no visor
+  // or horizontal shelf projecting above the instruments.
   const podShell = mesh(roundedBox(0.46, 0.17, 0.13, 0.045), M.matte, 'ClusterPod', { cast: false });
-  podShell.position.set(DRIVER_X, 1.020, -0.585);   // behind the dial faces
+  podShell.position.set(DRIVER_X, 0.995, -0.585);
   podShell.rotation.x = -0.35;
   g.add(podShell);
-
-  // Slim visor over the dials; a full binnacle would foul the windscreen here.
-  const visor = mesh(roundedBox(0.48, 0.018, 0.11, 0.008), M.matte, 'ClusterVisor', { cast: false });
-  visor.position.set(DRIVER_X, 1.118, -0.505);      // overhangs the dials, clear of the glass
-  visor.rotation.x = 0.25;
-  g.add(visor);
 
   /**
    * Mount a dial. The can and the cover glass are parented to the dash so they
@@ -172,11 +166,11 @@ function dashboard(M, parts) {
   };
 
   const tilt = -0.35;
-  g.add(dial('tacho', DRIVER_X, 1.030, -0.500, 0.068,
+  g.add(dial('tacho', DRIVER_X, 1.005, -0.500, 0.068,
     gaugeTexture({ max: 8000, step: 1000, redline: 7000, label: 'RPM', unit: 'x1000', divisor: 1000 }), tilt));
-  g.add(dial('speedo', DRIVER_X + 0.155, 1.012, -0.508, 0.048,
+  g.add(dial('speedo', DRIVER_X + 0.155, 0.987, -0.508, 0.048,
     gaugeTexture({ max: 240, step: 40, label: 'MPH' }), tilt));
-  g.add(dial('boost', DRIVER_X - 0.148, 1.012, -0.508, 0.042,
+  g.add(dial('boost', DRIVER_X - 0.148, 0.987, -0.508, 0.042,
     gaugeTexture({ max: 30, step: 5, redline: 26, label: 'BOOST', unit: 'psi' }), tilt));
 
   // Auxiliary gauges hang under the dash on the console, angled up at the driver.
