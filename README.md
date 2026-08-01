@@ -38,8 +38,12 @@ the preview car without rebuilding the course.
 - Instanced skyline, rooftop machinery, mountain silhouettes, street lamps,
   chevrons, barrier panels, chain-link fencing, utility lines, traffic signals,
   boulevard trees, street furniture and industrial props.
-- Route-hugging street-front buildings with lit ground-floor glazing and
-  awnings add depth to the downtown and final boulevard districts.
+- A reduced, footprint-audited skyline uses chamfered, tiered and round tower
+  geometry, distinct glass/concrete/brick façades, physical floor ledges,
+  podiums, rooftop machinery and antenna beacons instead of another box layer.
+- Industrial buildings use gabled profiles, corrugated weathering, physical
+  loading doors and roof vents; large scenery footprints are rejected before
+  they can overlap the carriageway.
 - Fictional period-style billboards, neon storefronts, start/finish gantry,
   grid lights and a live course scoreboard.
 - Procedural night sky, city glow, stars, fog, reflection environment and a
@@ -161,11 +165,11 @@ and instance matrices for non-finite values.
 
 | Component | Mesh draws | Rendered triangles |
 |---|---:|---:|
-| Course and environment | 130 | 110,719 |
+| Course and environment | 137 | 124,779 |
 | Existing car | 164 | 59,850 |
-| Estimated combined scene | 294 | 170,569 |
+| Estimated combined scene | 301 | 184,629 |
 
-Repeated scenery accounts for **4,509 instances**. The visual pass favours
+Repeated scenery accounts for **4,632 instances**. The visual pass favours
 instancing over flattening detail away, so road studs, tunnel ribs, trees,
 street furniture and structural parts remain legible while the draw-call total
 stays inside the project's Quest guard.
@@ -185,6 +189,8 @@ The checks cover:
 - barrier deflection, collision speed loss, open roadside sections and tunnel
   wall collision;
 - a finite, explicitly downward-facing overpass soffit;
+- removal of the rejected street-front/awning filler and a geometric clearance
+  audit covering city buildings, warehouses, tanks and smokestacks;
 - complete world construction, required landmarks, finite geometry and
   instance matrices, plus world draw-call/triangle budgets.
 

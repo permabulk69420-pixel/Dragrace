@@ -97,35 +97,97 @@ function groundTexture() {
   return textureFromCanvas(c);
 }
 
-function facadeTextures() {
+function facadeTextures(style = 'glass', seed = 0xb017d1a9) {
   const colour = document.createElement('canvas');
-  colour.width = 256;
+  colour.width = 512;
   colour.height = 512;
   const emissive = document.createElement('canvas');
-  emissive.width = 256;
+  emissive.width = 512;
   emissive.height = 512;
   const cg = colour.getContext('2d');
   const eg = emissive.getContext('2d');
-  const random = seededRandom(0xb017d1a9);
-  cg.fillStyle = '#161b24';
-  cg.fillRect(0, 0, 256, 512);
-  eg.fillStyle = '#000';
-  eg.fillRect(0, 0, 256, 512);
+  const random = seededRandom(seed);
+  const styles = {
+    glass: {
+      wall: '#101923', frame: '#293847', floor: '#182430', unlit: '#071019',
+      warm: '#b88245', cool: '#47748d', floorStep: 25, bayStep: 34, windowW: 25, windowH: 15,
+    },
+    concrete: {
+      wall: '#45464a', frame: '#77787a', floor: '#35363a', unlit: '#12161a',
+      warm: '#aa7a43', cool: '#526f7b', floorStep: 33, bayStep: 43, windowW: 22, windowH: 17,
+    },
+    brick: {
+      wall: '#4a2926', frame: '#6e4036', floor: '#321d1c', unlit: '#111417',
+      warm: '#ad7440', cool: '#4d6570', floorStep: 30, bayStep: 38, windowW: 24, windowH: 16,
+    },
+  };
+  const palette = styles[style] ?? styles.glass;
 
-  for (let y = 12; y < 512; y += 30) {
-    for (let x = 10; x < 256; x += 28) {
-      const lit = random() > 0.47;
-      const warm = random() > 0.24;
-      cg.fillStyle = lit ? (warm ? '#9b7843' : '#526f82') : '#111722';
-      cg.fillRect(x, y, 17, 15);
-      cg.strokeStyle = '#2c333e';
-      cg.strokeRect(x - 1, y - 1, 19, 17);
-      if (lit) {
-        eg.fillStyle = warm ? '#ffbd62' : '#78caff';
-        eg.fillRect(x, y, 17, 15);
+  cg.fillStyle = palette.wall;
+  cg.fillRect(0, 0, 512, 512);
+  eg.fillStyle = '#000';
+  eg.fillRect(0, 0, 512, 512);
+
+  if (style === 'brick') {
+    cg.strokeStyle = 'rgba(210,155,125,.10)';
+    cg.lineWidth = 1;
+    for (let y = 0; y < 512; y += 11) {
+      cg.beginPath();
+      cg.moveTo(0, y);
+      cg.lineTo(512, y);
+      cg.stroke();
+      const shift = (Math.floor(y / 11) % 2) * 17;
+      for (let x = shift; x < 512; x += 34) {
+        cg.beginPath();
+        cg.moveTo(x, y);
+        cg.lineTo(x, y + 11);
+        cg.stroke();
       }
     }
   }
+
+  for (let y = 10; y < 472; y += palette.floorStep) {
+    cg.fillStyle = palette.floor;
+    cg.fillRect(0, y + palette.windowH + 5, 512, style === 'glass' ? 4 : 3);
+    for (let x = 10; x < 512; x += palette.bayStep) {
+      const lit = random() > (style === 'concrete' ? 0.60 : 0.48);
+      const warm = random() > 0.28;
+      cg.fillStyle = lit ? (warm ? palette.warm : palette.cool) : palette.unlit;
+      cg.fillRect(x, y, palette.windowW, palette.windowH);
+      cg.strokeStyle = palette.frame;
+      cg.lineWidth = style === 'glass' ? 2 : 3;
+      cg.strokeRect(x - 1, y - 1, palette.windowW + 2, palette.windowH + 2);
+      if (style === 'glass') {
+        cg.fillStyle = 'rgba(185,220,235,.16)';
+        cg.fillRect(x + 3, y + 2, 2, palette.windowH - 4);
+      }
+      if (lit) {
+        eg.fillStyle = warm ? '#ffb85e' : '#72c9ef';
+        eg.fillRect(x + 1, y + 1, palette.windowW - 2, palette.windowH - 2);
+      }
+    }
+  }
+
+  // A darker, larger-scale ground-floor rhythm stops façades reading as one
+  // repeated wallpaper tile when seen from cockpit height.
+  cg.fillStyle = '#090c10';
+  cg.fillRect(0, 466, 512, 46);
+  for (let x = 8; x < 512; x += 64) {
+    cg.fillStyle = x % 128 ? '#23343d' : '#30272b';
+    cg.fillRect(x, 474, 52, 31);
+    cg.strokeStyle = '#55616a';
+    cg.strokeRect(x, 474, 52, 31);
+    eg.fillStyle = x % 128 ? '#275f70' : '#6a3c2d';
+    eg.globalAlpha = 0.34;
+    eg.fillRect(x + 2, 476, 48, 27);
+    eg.globalAlpha = 1;
+  }
+
+  const grime = cg.createLinearGradient(0, 380, 0, 512);
+  grime.addColorStop(0, 'rgba(5,7,9,0)');
+  grime.addColorStop(1, 'rgba(5,7,9,.28)');
+  cg.fillStyle = grime;
+  cg.fillRect(0, 380, 512, 132);
   return {
     map: textureFromCanvas(colour),
     emissiveMap: textureFromCanvas(emissive, { srgb: false }),
@@ -141,17 +203,45 @@ function warehouseTexture() {
     g.fillStyle = x % 32 ? '#4a5057' : '#30363c';
     g.fillRect(x, 0, 9, 256);
   }
-  g.fillStyle = '#1b2025';
-  g.fillRect(28, 82, 200, 152);
-  g.strokeStyle = '#68717b';
-  g.lineWidth = 5;
-  for (let y = 94; y < 230; y += 28) {
+  g.strokeStyle = 'rgba(180,190,195,.22)';
+  g.lineWidth = 2;
+  for (let y = 20; y < 256; y += 46) {
     g.beginPath();
-    g.moveTo(30, y);
-    g.lineTo(226, y);
+    g.moveTo(0, y);
+    g.lineTo(256, y);
     g.stroke();
   }
+  const random = seededRandom(0x4a2e110);
+  for (let i = 0; i < 24; i++) {
+    const x = random() * 256;
+    const stain = g.createLinearGradient(x, 0, x + 4, 90);
+    stain.addColorStop(0, 'rgba(80,38,20,.26)');
+    stain.addColorStop(1, 'rgba(80,38,20,0)');
+    g.fillStyle = stain;
+    g.fillRect(x, random() * 170, 3 + random() * 4, 28 + random() * 70);
+  }
   return textureFromCanvas(c);
+}
+
+function loadingDoorTexture() {
+  const c = canvas(256);
+  const g = c.getContext('2d');
+  g.fillStyle = '#171c21';
+  g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#4e5962';
+  g.lineWidth = 4;
+  for (let y = 12; y < 256; y += 25) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(256, y);
+    g.stroke();
+  }
+  g.strokeStyle = '#747f87';
+  g.lineWidth = 7;
+  g.strokeRect(5, 5, 246, 246);
+  g.fillStyle = '#090c0f';
+  g.fillRect(108, 190, 40, 66);
+  return textureFromCanvas(c, { repeat: false });
 }
 
 function glowTexture(colour = '#ffae57') {
@@ -204,44 +294,6 @@ function fenceTexture() {
     g.stroke();
   }
   return textureFromCanvas(c, { srgb: false });
-}
-
-function storefrontTexture() {
-  const colour = document.createElement('canvas');
-  colour.width = 512;
-  colour.height = 256;
-  const emissive = document.createElement('canvas');
-  emissive.width = 512;
-  emissive.height = 256;
-  const cg = colour.getContext('2d');
-  const eg = emissive.getContext('2d');
-  cg.fillStyle = '#11151c';
-  cg.fillRect(0, 0, 512, 256);
-  eg.fillStyle = '#000';
-  eg.fillRect(0, 0, 512, 256);
-  for (let bay = 0; bay < 5; bay++) {
-    const x = 12 + bay * 100;
-    const tint = bay % 3 === 0 ? '#3eb9d5' : bay % 3 === 1 ? '#d97a44' : '#b550a5';
-    cg.fillStyle = '#263544';
-    cg.fillRect(x, 42, 86, 181);
-    cg.fillStyle = tint;
-    cg.globalAlpha = 0.55;
-    cg.fillRect(x + 5, 48, 76, 116);
-    cg.globalAlpha = 1;
-    cg.fillStyle = '#090c11';
-    cg.fillRect(x + 39, 48, 5, 175);
-    cg.fillRect(x + 5, 161, 76, 7);
-    eg.fillStyle = tint;
-    eg.globalAlpha = 0.78;
-    eg.fillRect(x + 5, 48, 76, 116);
-    eg.globalAlpha = 1;
-  }
-  cg.fillStyle = '#080a0e';
-  cg.fillRect(0, 0, 512, 28);
-  return {
-    map: textureFromCanvas(colour, { repeat: false }),
-    emissiveMap: textureFromCanvas(emissive, { repeat: false, srgb: false }),
-  };
 }
 
 function graffitiTexture() {
@@ -332,11 +384,27 @@ export function createWorldMaterials() {
   const asphalt = asphaltTexture();
   const concrete = concreteTexture();
   const ground = groundTexture();
-  const facades = facadeTextures();
-  const storefronts = storefrontTexture();
+  const glassFacades = facadeTextures('glass', 0xb017d1a9);
+  const concreteFacades = facadeTextures('concrete', 0x6c0ac3e7);
+  const brickFacades = facadeTextures('brick', 0xb21c4a11);
   const asphaltBump = noiseTexture(0xa512b00, { base: 124, spread: 78 });
   const asphaltRoughness = noiseTexture(0xa512f00, { base: 208, spread: 68 });
   const concreteBump = noiseTexture(0xc0acb00, { base: 128, spread: 34 });
+  const buildingBump = noiseTexture(0xb011d00, { base: 128, spread: 22 });
+  const makeBuildingMaterial = (facade, { roughness, metalness }) => new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: facade.map,
+    bumpMap: buildingBump,
+    bumpScale: 0.025,
+    emissive: 0xffffff,
+    emissiveMap: facade.emissiveMap,
+    emissiveIntensity: 0.68,
+    roughness,
+    metalness,
+  });
+  const buildingGlass = makeBuildingMaterial(glassFacades, { roughness: 0.48, metalness: 0.24 });
+  const buildingConcrete = makeBuildingMaterial(concreteFacades, { roughness: 0.86, metalness: 0.04 });
+  const buildingBrick = makeBuildingMaterial(brickFacades, { roughness: 0.90, metalness: 0.02 });
 
   return {
     road: new THREE.MeshStandardMaterial({
@@ -374,16 +442,17 @@ export function createWorldMaterials() {
     coolLamp: new THREE.MeshStandardMaterial({ color: 0xd8f1ff, emissive: 0x80cfff, emissiveIntensity: 5.0, roughness: 0.25 }),
     ground: new THREE.MeshStandardMaterial({ color: 0x364038, map: ground, roughness: 1 }),
     dirt: new THREE.MeshStandardMaterial({ color: 0x34302a, roughness: 1 }),
-    building: new THREE.MeshStandardMaterial({
-      color: 0xb5bbc5,
-      map: facades.map,
-      emissive: 0xffbd72,
-      emissiveMap: facades.emissiveMap,
-      emissiveIntensity: 0.72,
-      roughness: 0.82,
-      metalness: 0.08,
-    }),
+    // `building` remains a compatibility alias; the city builder uses the
+    // three distinct façade/silhouette families below.
+    building: buildingGlass,
+    buildingGlass,
+    buildingConcrete,
+    buildingBrick,
+    buildingPodium: new THREE.MeshStandardMaterial({ color: 0x363b42, map: concrete, bumpMap: concreteBump, bumpScale: 0.04, roughness: 0.82, metalness: 0.12 }),
+    buildingTrim: new THREE.MeshStandardMaterial({ color: 0x69737c, roughness: 0.44, metalness: 0.58 }),
+    buildingBeacon: new THREE.MeshStandardMaterial({ color: 0xff6250, emissive: 0xff2512, emissiveIntensity: 4.2, roughness: 0.2 }),
     warehouse: new THREE.MeshStandardMaterial({ color: 0x727a84, map: warehouseTexture(), roughness: 0.86, metalness: 0.22 }),
+    warehouseDoor: new THREE.MeshStandardMaterial({ color: 0x8a949d, map: loadingDoorTexture(), roughness: 0.58, metalness: 0.55 }),
     container: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness: 0.15 }),
     roof: new THREE.MeshStandardMaterial({ color: 0x11161d, roughness: 0.88, metalness: 0.2 }),
     tunnel: new THREE.MeshStandardMaterial({ color: 0x6b7078, map: concrete, roughness: 0.86, side: THREE.DoubleSide }),
@@ -431,15 +500,6 @@ export function createWorldMaterials() {
     }),
     treeTrunk: new THREE.MeshStandardMaterial({ color: 0x3b2b24, roughness: 1 }),
     foliage: new THREE.MeshStandardMaterial({ color: 0x18372b, roughness: 0.92 }),
-    storefront: new THREE.MeshStandardMaterial({
-      color: 0x95b8c7,
-      map: storefronts.map,
-      emissive: 0xffffff,
-      emissiveMap: storefronts.emissiveMap,
-      emissiveIntensity: 0.95,
-      roughness: 0.35,
-      metalness: 0.12,
-    }),
     graffiti: new THREE.MeshBasicMaterial({ map: graffitiTexture(), transparent: true, toneMapped: false, side: THREE.DoubleSide }),
     warning: new THREE.MeshStandardMaterial({ color: 0xf0b51e, emissive: 0x5c3000, emissiveIntensity: 0.8, roughness: 0.54 }),
     sodiumGlow: new THREE.MeshBasicMaterial({
