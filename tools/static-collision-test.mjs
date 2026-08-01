@@ -9,9 +9,7 @@ const {
   collectStaticColliders,
   StaticCollisionWorld,
 } = await import(path.join(rootPath, 'src/world/staticCollision.js'));
-const {
-  courseRoute,
-} = await import(path.join(rootPath, 'src/world/course.js'));
+const { courseRoute } = await import(path.join(rootPath, 'src/world/course.js'));
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -55,16 +53,16 @@ const vehicle = {
   accel: 5,
   lateralAccel: 4,
 };
+const headingBeforeImpact = vehicle.heading;
 world.reset({ x: -8, z: 0, heading: -Math.PI / 2, y: 0.82 });
 const wallHit = world.resolve(vehicle, 1 / 30, 0.82);
-const forwardAfterHit = new THREE.Vector2(-Math.sin(vehicle.heading), -Math.cos(vehicle.heading));
 check('fast movement is swept into the actual wall', wallHit.collided && wallHit.collider?.source === 'TestMainBlock');
 check('vehicle remains at the contact wall instead of teleporting elsewhere',
   vehicle.x < -3.4 && vehicle.x > -5.2,
   `x=${vehicle.x.toFixed(2)}`);
-check('head-on wall impact reverses direction and removes speed',
-  forwardAfterHit.x < -0.5 && Math.abs(vehicle.speed) < 30,
-  `speed=${vehicle.speed.toFixed(2)}, forwardX=${forwardAfterHit.x.toFixed(2)}`);
+check('head-on wall impact applies momentum impulse without snapping chassis heading',
+  vehicle.velocityX < 0 && Math.abs(vehicle.speed) < 30 && Math.abs(vehicle.heading - headingBeforeImpact) < 1e-8,
+  `vx=${vehicle.velocityX.toFixed(2)}, speed=${vehicle.speed.toFixed(2)}, heading=${vehicle.heading.toFixed(3)}`);
 
 const rotatedVehicle = {
   x: 18,
@@ -99,7 +97,7 @@ check('vertical separation prevents false collision beneath elevated roads', !el
 
 const boundaryColliders = collectCourseBoundaryColliders(courseRoute);
 check('visible course walls become real short world-space colliders',
-  boundaryColliders.length > 2000 && boundaryColliders.every((collider) => collider.type === 'box'),
+  boundaryColliders.length > 4000 && boundaryColliders.every((collider) => collider.type === 'box'),
   `${boundaryColliders.length} wall segments`);
 
 function outwardHeading(frame) {
