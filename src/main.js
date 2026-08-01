@@ -10,6 +10,7 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { buildCar } from './car/car.js';
 import { setupEnvironment } from './world/environment.js';
 import { buildTrack } from './world/track.js';
+import { buildStaticCollisionWorld } from './world/staticCollision.js';
 import { CircuitRace, CIRCUIT_PHASE, formatTime } from './world/circuitRace.js';
 import { Vehicle } from './physics/vehicle.js';
 import { Controls } from './input/controls.js';
@@ -67,6 +68,10 @@ const lights = setupEnvironment(renderer, scene);
 step(40, 'Building Midnight Circuit…');
 const track = buildTrack();
 scene.add(track.object);
+// Build a spatially indexed collision world from the actual rendered building,
+// warehouse, container, landmark and support geometry. This is separate from
+// the spline-following barrier solver because these are real world objects.
+const staticCollisions = buildStaticCollisionWorld(track.object);
 
 step(62, 'Building the car…');
 const car = buildCar({ paint: 0xb3121b });
@@ -212,6 +217,12 @@ function resetCar() {
   vehicle.reset(track.spawn.position.z, track.spawn.position.x);
   vehicle.heading = track.spawn.heading;
   track.resetCollisions();
+  staticCollisions.reset({
+    x: track.spawn.position.x,
+    z: track.spawn.position.z,
+    heading: track.spawn.heading,
+    y: track.spawn.position.y + 0.82,
+  });
   race.reset();
   car.root.position.copy(track.spawn.position);
   car.root.rotation.set(track.spawn.pitch, track.spawn.heading, track.spawn.roll, 'YXZ');
@@ -265,7 +276,13 @@ renderer.setAnimationLoop(() => {
   // --- simulate ------------------------------------------------------------
   vehicle.update(dt);
   const routeHint = race.currentInfo?.distance ?? race.lastRouteDistance;
+  const provisionalRoad = track.surfaceAt(vehicle.x, vehicle.z, routeHint);
+  const sceneryCollision = staticCollisions.resolve(vehicle, dt, provisionalRoad.height + 0.82);
   const collision = track.resolveVehicle(vehicle, routeHint, dt);
+  if (sceneryCollision.emit) {
+    const volume = Math.min(0.42, 0.08 + sceneryCollision.impact * 0.012);
+    audio.blip(48, 0.11, volume);
+  }
   race.update(vehicle, dt, collision.road);
 
   // --- place the car -------------------------------------------------------
@@ -317,4 +334,4 @@ function updateHud() {
 }
 
 // Expose a little of the internals for tinkering from the console.
-Object.assign(window, { THREE, scene, renderer, car, vehicle, race, track, camera });
+Object.assign(window, { THREE, scene, renderer, car, vehicle, race, track, staticCollisions, camera });
