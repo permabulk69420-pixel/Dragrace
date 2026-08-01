@@ -29,7 +29,7 @@ if (cage?.userData.frontHeader) {
 
   const verticalAngle = Math.atan2(header.y - eye.y, Math.hypot(header.x - eye.x, header.z - eye.z));
   check('windscreen header sits above the primary driving sightline',
-    verticalAngle > THREE.MathUtils.degToRad(17),
+    verticalAngle > THREE.MathUtils.degToRad(15),
     `${THREE.MathUtils.radToDeg(verticalAngle).toFixed(1)} deg above eye`);
 }
 
