@@ -7,7 +7,7 @@
   "scripts": {
     "vendor": "node tools/vendor.mjs",
     "export:glb": "node tools/export-glb.mjs",
-    "smoke": "node tools/cockpit-smoke-test.mjs && node tools/smoke-test.mjs && node tools/world-smoke-test.mjs",
+    "smoke": "node tools/cockpit-smoke-test.mjs && node tools/smoke-test.mjs && node tools/world-smoke-test.mjs && node tools/levels-smoke-test.mjs",
     "build": "node tools/build.mjs",
     "dev": "node tools/serve.mjs"
   },

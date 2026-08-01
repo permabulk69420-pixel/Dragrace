@@ -1087,7 +1087,7 @@ function buildNeonStorefronts(root, route, animatedMaterials) {
   }
 }
 
-function createRaceBoard(root, route, materials) {
+export function createRaceBoard(root, route, materials) {
   const c = document.createElement('canvas');
   c.width = 1024;
   c.height = 512;

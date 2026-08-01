@@ -171,9 +171,13 @@ function addBoundaryRange(colliders, route, range, { kind, offset, thickness, he
   }
 }
 
-export function collectCourseBoundaryColliders(route = courseRoute) {
+export function collectCourseBoundaryColliders(route = courseRoute, {
+  barrierRanges = BARRIER_RANGES,
+  guardrailRanges = GUARDRAIL_RANGES,
+  tunnelRanges = [TUNNEL_RANGE],
+} = {}) {
   const colliders = [];
-  for (const range of BARRIER_RANGES) {
+  for (const range of barrierRanges) {
     addBoundaryRange(colliders, route, range, {
       kind: 'barrier',
       offset: DRIVEABLE_HALF_WIDTH + 0.52,
@@ -181,7 +185,7 @@ export function collectCourseBoundaryColliders(route = courseRoute) {
       height: 1.0,
     });
   }
-  for (const range of GUARDRAIL_RANGES) {
+  for (const range of guardrailRanges) {
     addBoundaryRange(colliders, route, range, {
       kind: 'guardrail',
       offset: DRIVEABLE_HALF_WIDTH + 0.63,
@@ -189,12 +193,14 @@ export function collectCourseBoundaryColliders(route = courseRoute) {
       height: 1.05,
     });
   }
-  addBoundaryRange(colliders, route, TUNNEL_RANGE, {
-    kind: 'tunnel',
-    offset: 8.74,
-    thickness: 0.40,
-    height: 4.8,
-  });
+  for (const range of tunnelRanges) {
+    addBoundaryRange(colliders, route, range, {
+      kind: 'tunnel',
+      offset: 8.74,
+      thickness: 0.40,
+      height: 4.8,
+    });
+  }
   return colliders;
 }
 
@@ -508,10 +514,11 @@ export function buildStaticCollisionWorld(root, options = {}) {
   const {
     includeCourseBoundaries = true,
     route = courseRoute,
+    boundaryConfig = {},
   } = options;
   const colliders = [
     ...collectStaticColliders(root),
-    ...(includeCourseBoundaries ? collectCourseBoundaryColliders(route) : []),
+    ...(includeCourseBoundaries ? collectCourseBoundaryColliders(route, boundaryConfig) : []),
   ];
   return new StaticCollisionWorld(colliders, options);
 }

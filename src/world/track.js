@@ -8,15 +8,12 @@
  */
 import * as THREE from 'three';
 import {
-  BARRIER_RANGES,
-  courseRoute,
   DRIVEABLE_HALF_WIDTH,
-  GUARDRAIL_RANGES,
   ROAD_HALF_WIDTH,
   SHOULDER_WIDTH,
-  TUNNEL_RANGE,
 } from './course.js';
-import { COURSE_COLLISION_ZONES, CourseCollision } from './courseCollision.js';
+import { CourseCollision, createCourseCollisionZones } from './courseCollision.js';
+import { getLevelDefinition } from './levels.js';
 import { createWorldMaterials } from './materials.js';
 import {
   barrierGeometry,
@@ -26,9 +23,8 @@ import {
   tunnelGeometry,
   verticalRibbonGeometry,
 } from './roadGeometry.js';
-import { buildScenery } from './scenery.js';
 
-const inRanges = (ranges) => (u) => ranges.some(([a, b]) => u >= a && u <= b);
+const inRanges = (ranges = []) => (u) => ranges.some(([a, b]) => u >= a && u <= b);
 
 function roadMesh(geometry, material, name, renderOrder = 0) {
   const object = new THREE.Mesh(geometry, material);
@@ -79,7 +75,9 @@ function addStartGrid(root, route, materials) {
   root.add(group);
 }
 
-function buildDirectionArrows(route, material) {
+function buildDirectionArrows(route, material, distances = [
+  95, 285, 540, 810, 1100, 1390, 1680, 1970, 2260, 2530, 2790,
+]) {
   const shape = new THREE.Shape();
   shape.moveTo(-0.42, -1.8);
   shape.lineTo(0.42, -1.8);
@@ -90,7 +88,6 @@ function buildDirectionArrows(route, material) {
   shape.lineTo(-0.42, 0.55);
   shape.closePath();
   const geometry = new THREE.ShapeGeometry(shape);
-  const distances = [95, 285, 540, 810, 1100, 1390, 1680, 1970, 2260, 2530, 2790];
   const arrows = new THREE.InstancedMesh(geometry, material, distances.length);
   arrows.name = 'DirectionArrows';
   arrows.renderOrder = 4;
@@ -107,60 +104,73 @@ function buildDirectionArrows(route, material) {
   return arrows;
 }
 
-function buildRoadSurface(root, route, materials) {
+function buildRoadSurface(root, route, materials, profile = {}) {
+  const elevatedRanges = profile.elevatedRanges ?? [[0.235, 0.515], [0.525, 0.610]];
+  const sidewalkRanges = profile.sidewalkRanges ?? [[0.485, 0.705], [0.875, 1.0], [0.0, 0.035]];
+  const cornerRanges = profile.cornerRanges ?? [
+    [0.070, 0.115], [0.130, 0.166], [0.198, 0.230], [0.274, 0.315],
+    [0.372, 0.410], [0.455, 0.492], [0.548, 0.583], [0.622, 0.655],
+    [0.804, 0.835], [0.855, 0.882], [0.912, 0.945],
+  ];
+  const directionArrowDistances = profile.directionArrowDistances ?? [
+    95, 285, 540, 810, 1100, 1390, 1680, 1970, 2260, 2530, 2790,
+  ];
+
   // Structural deck below the elevated highway portion. The explicit
   // downward-facing soffit closes the slab when seen from the lower boulevard;
   // a top-only road ribbon disappears because normal road materials are
   // intentionally front-sided.
-  const skyway = inRanges([[0.235, 0.515], [0.525, 0.610]]);
+  const skyway = inRanges(elevatedRanges);
   const deckWidth = (DRIVEABLE_HALF_WIDTH + 1.6) * 2;
-  root.add(roadMesh(ribbonGeometry(route, {
-    width: deckWidth,
-    lift: -0.08,
-    uvMetres: 8,
-    name: 'ViaductDeck',
-    include: skyway,
-  }), materials.concreteDark, 'ViaductDeck'));
-  root.add(roadMesh(ribbonGeometry(route, {
-    width: deckWidth,
-    lift: -1.43,
-    uvMetres: 7,
-    underside: true,
-    name: 'ViaductUnderside',
-    include: skyway,
-  }), materials.underDeck, 'ViaductUnderside'));
-  root.add(roadMesh(fasciaGeometry(route, {
-    offset: -deckWidth / 2,
-    depth: 1.35,
-    include: skyway,
-    name: 'ViaductFasciaLeft',
-  }), materials.concreteDark, 'ViaductFasciaLeft'));
-  root.add(roadMesh(fasciaGeometry(route, {
-    offset: deckWidth / 2,
-    depth: 1.35,
-    include: skyway,
-    name: 'ViaductFasciaRight',
-  }), materials.concreteDark, 'ViaductFasciaRight'));
-
-  // Three continuous steel webs and lower flanges make the bridge silhouette
-  // read as a supported structure rather than a floating textured plane.
-  for (const [index, offset] of [-5.15, 0, 5.15].entries()) {
-    root.add(roadMesh(verticalRibbonGeometry(route, {
-      offset,
-      bottom: -2.06,
-      height: 0.62,
-      include: skyway,
-      name: `ViaductGirderWeb_${index}`,
-    }), materials.girder, `ViaductGirderWeb_${index}`));
+  if (elevatedRanges.length) {
     root.add(roadMesh(ribbonGeometry(route, {
-      width: 0.62,
-      offset,
-      lift: -2.08,
-      underside: true,
-      uvMetres: 4,
+      width: deckWidth,
+      lift: -0.08,
+      uvMetres: 8,
+      name: 'ViaductDeck',
       include: skyway,
-      name: `ViaductGirderFlange_${index}`,
-    }), materials.girder, `ViaductGirderFlange_${index}`));
+    }), materials.concreteDark, 'ViaductDeck'));
+    root.add(roadMesh(ribbonGeometry(route, {
+      width: deckWidth,
+      lift: -1.43,
+      uvMetres: 7,
+      underside: true,
+      name: 'ViaductUnderside',
+      include: skyway,
+    }), materials.underDeck, 'ViaductUnderside'));
+    root.add(roadMesh(fasciaGeometry(route, {
+      offset: -deckWidth / 2,
+      depth: 1.35,
+      include: skyway,
+      name: 'ViaductFasciaLeft',
+    }), materials.concreteDark, 'ViaductFasciaLeft'));
+    root.add(roadMesh(fasciaGeometry(route, {
+      offset: deckWidth / 2,
+      depth: 1.35,
+      include: skyway,
+      name: 'ViaductFasciaRight',
+    }), materials.concreteDark, 'ViaductFasciaRight'));
+
+    // Three continuous steel webs and lower flanges make the bridge silhouette
+    // read as a supported structure rather than a floating textured plane.
+    for (const [index, offset] of [-5.15, 0, 5.15].entries()) {
+      root.add(roadMesh(verticalRibbonGeometry(route, {
+        offset,
+        bottom: -2.06,
+        height: 0.62,
+        include: skyway,
+        name: `ViaductGirderWeb_${index}`,
+      }), materials.girder, `ViaductGirderWeb_${index}`));
+      root.add(roadMesh(ribbonGeometry(route, {
+        width: 0.62,
+        offset,
+        lift: -2.08,
+        underside: true,
+        uvMetres: 4,
+        include: skyway,
+        name: `ViaductGirderFlange_${index}`,
+      }), materials.girder, `ViaductGirderFlange_${index}`));
+    }
   }
 
   // Shoulders are laid first, then the main carriageway slightly above them.
@@ -201,7 +211,7 @@ function buildRoadSurface(root, route, materials) {
   }
 
   // Concrete sidewalks in the denser city sections.
-  const city = inRanges([[0.485, 0.705], [0.875, 1.0], [0.0, 0.035]]);
+  const city = inRanges(sidewalkRanges);
   for (const side of [-1, 1]) {
     root.add(roadMesh(ribbonGeometry(route, {
       width: 2.7,
@@ -222,11 +232,7 @@ function buildRoadSurface(root, route, materials) {
 
   // Red/white apex kerbs mark the important corner complexes without turning
   // every metre of public road into a purpose-built circuit.
-  const corners = inRanges([
-    [0.070, 0.115], [0.130, 0.166], [0.198, 0.230], [0.274, 0.315],
-    [0.372, 0.410], [0.455, 0.492], [0.548, 0.583], [0.622, 0.655],
-    [0.804, 0.835], [0.855, 0.882], [0.912, 0.945],
-  ]);
+  const corners = inRanges(cornerRanges);
   for (const side of [-1, 1]) {
     for (const [parity, material] of [[0, materials.curbRed], [1, materials.curbWhite]]) {
       root.add(roadMesh(ribbonGeometry(route, {
@@ -240,12 +246,15 @@ function buildRoadSurface(root, route, materials) {
     }
   }
 
-  root.add(buildDirectionArrows(route, materials.laneWhite));
+  root.add(buildDirectionArrows(route, materials.laneWhite, directionArrowDistances));
   addStartGrid(root, route, materials);
 }
 
-function buildSafetyAndTunnel(root, route, materials) {
-  const protectedRoad = inRanges(BARRIER_RANGES);
+function buildSafetyAndTunnel(root, route, materials, boundaryConfig = {}) {
+  const barrierRanges = boundaryConfig.barrierRanges ?? [];
+  const guardrailRanges = boundaryConfig.guardrailRanges ?? [];
+  const tunnelRanges = boundaryConfig.tunnelRanges ?? [];
+  const protectedRoad = inRanges(barrierRanges);
   for (const side of [-1, 1]) {
     root.add(roadMesh(barrierGeometry(route, {
       offset: side * (DRIVEABLE_HALF_WIDTH + 0.52),
@@ -266,7 +275,7 @@ function buildSafetyAndTunnel(root, route, materials) {
   // The remaining open-road spans use proper steel W-beam-style containment.
   // These visible ranges are also consumed by CourseCollision, so there are no
   // invisible walls and no unprotected holes in the lap boundary.
-  const guardrailRoad = inRanges(GUARDRAIL_RANGES);
+  const guardrailRoad = inRanges(guardrailRanges);
   for (const side of [-1, 1]) {
     for (const [index, band] of [[0, 0.38], [1, 0.70]]) {
       root.add(roadMesh(verticalRibbonGeometry(route, {
@@ -303,40 +312,57 @@ function buildSafetyAndTunnel(root, route, materials) {
   posts.instanceMatrix.needsUpdate = true;
   root.add(posts);
 
-  const tunnel = roadMesh(tunnelGeometry(route, {
-    start: TUNNEL_RANGE[0],
-    end: TUNNEL_RANGE[1],
-  }), materials.tunnel, 'HarbourTunnelShell', 1);
-  tunnel.castShadow = false;
-  tunnel.receiveShadow = true;
-  root.add(tunnel);
+  for (const [index, range] of tunnelRanges.entries()) {
+    const name = index === 0 ? 'HarbourTunnelShell' : `CourseTunnelShell_${index + 1}`;
+    const tunnel = roadMesh(tunnelGeometry(route, {
+      start: range[0],
+      end: range[1],
+    }), materials.tunnel, name, 1);
+    tunnel.castShadow = false;
+    tunnel.receiveShadow = true;
+    root.add(tunnel);
 
-  // Dark lower wall band makes speed legible inside the tunnel.
-  const tunnelRange = inRanges([TUNNEL_RANGE]);
-  for (const side of [-1, 1]) {
-    root.add(roadMesh(verticalRibbonGeometry(route, {
-      offset: side * 8.74,
-      bottom: 0.08,
-      height: 1.3,
-      include: tunnelRange,
-      name: `TunnelLowerBand_${side}`,
-    }), materials.darkMetal, `TunnelLowerBand_${side}`, 3));
+    // Dark lower wall band makes speed legible inside the tunnel.
+    const tunnelRange = inRanges([range]);
+    for (const side of [-1, 1]) {
+      root.add(roadMesh(verticalRibbonGeometry(route, {
+        offset: side * 8.74,
+        bottom: 0.08,
+        height: 1.3,
+        include: tunnelRange,
+        name: `TunnelLowerBand_${index}_${side}`,
+      }), materials.darkMetal, `TunnelLowerBand_${index}_${side}`, 3));
+    }
   }
 }
 
-export function buildTrack({ collisionVehicleHalfWidth = 1.06 } = {}) {
+export function buildTrack({
+  collisionVehicleHalfWidth = 1.06,
+  levelId,
+  level: requestedLevel,
+} = {}) {
+  const level = requestedLevel ?? getLevelDefinition(levelId);
   const root = new THREE.Group();
-  root.name = 'MidnightCircuitWorld';
-  const route = courseRoute;
+  root.name = level.worldName;
+  const route = level.route;
   const materials = createWorldMaterials();
 
-  buildRoadSurface(root, route, materials);
-  buildSafetyAndTunnel(root, route, materials);
-  const scenery = buildScenery(route, materials);
+  buildRoadSurface(root, route, materials, level.road);
+  buildSafetyAndTunnel(root, route, materials, level.boundaries);
+  const scenery = level.buildScenery(route, materials);
   root.add(scenery.object);
-  const collisions = new CourseCollision(route, { vehicleHalfWidth: collisionVehicleHalfWidth });
+  const collisionZones = createCourseCollisionZones(level.boundaries);
+  const collisions = new CourseCollision(route, {
+    vehicleHalfWidth: collisionVehicleHalfWidth,
+    zones: collisionZones,
+  });
 
   return {
+    id: level.id,
+    name: level.name,
+    shortName: level.shortName,
+    description: level.description,
+    environmentTheme: level.environmentTheme,
     object: root,
     route,
     materials,
@@ -345,7 +371,8 @@ export function buildTrack({ collisionVehicleHalfWidth = 1.06 } = {}) {
     scoreboard: scenery.scoreboard,
     roadHalfWidth: ROAD_HALF_WIDTH,
     driveableHalfWidth: DRIVEABLE_HALF_WIDTH,
-    collisionZones: COURSE_COLLISION_ZONES,
+    boundaryConfig: level.boundaries,
+    collisionZones,
     update(time, playerPosition) {
       scenery.update(time, playerPosition);
     },
@@ -364,6 +391,7 @@ export function buildTrack({ collisionVehicleHalfWidth = 1.06 } = {}) {
       lengthMetres: route.length,
       elevationGainMetres: Math.max(...route.frames.map((f) => f.center.y)),
       streetLights: scenery.lampCount,
+      auditedFootprints: scenery.object.userData.roadClearanceFootprints?.length ?? 0,
     },
   };
 }

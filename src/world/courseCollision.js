@@ -28,30 +28,38 @@ const inWrappedRange = (u, [start, end]) => start <= end
   ? u >= start && u <= end
   : u >= start || u <= end;
 
-export const COURSE_COLLISION_ZONES = Object.freeze([
-  ...BARRIER_RANGES.map((range, index) => Object.freeze({
-    id: `road-barrier-${index + 1}`,
-    kind: 'barrier',
-    range,
-    innerFace: BARRIER_CENTRE_OFFSET - BARRIER_THICKNESS * 0.5,
-  })),
-  ...GUARDRAIL_RANGES.map((range, index) => Object.freeze({
-    id: `steel-guardrail-${index + 1}`,
-    kind: 'guardrail',
-    range,
-    innerFace: GUARDRAIL_INNER_FACE,
-  })),
-  Object.freeze({
-    id: 'harbour-tunnel-wall',
-    kind: 'tunnel',
-    range: TUNNEL_RANGE,
-    innerFace: TUNNEL_INNER_FACE,
-  }),
-]);
+export function createCourseCollisionZones({
+  barrierRanges = BARRIER_RANGES,
+  guardrailRanges = GUARDRAIL_RANGES,
+  tunnelRanges = [TUNNEL_RANGE],
+} = {}) {
+  return Object.freeze([
+    ...barrierRanges.map((range, index) => Object.freeze({
+      id: `road-barrier-${index + 1}`,
+      kind: 'barrier',
+      range,
+      innerFace: BARRIER_CENTRE_OFFSET - BARRIER_THICKNESS * 0.5,
+    })),
+    ...guardrailRanges.map((range, index) => Object.freeze({
+      id: `steel-guardrail-${index + 1}`,
+      kind: 'guardrail',
+      range,
+      innerFace: GUARDRAIL_INNER_FACE,
+    })),
+    ...tunnelRanges.map((range, index) => Object.freeze({
+      id: index === 0 ? 'harbour-tunnel-wall' : `tunnel-wall-${index + 1}`,
+      kind: 'tunnel',
+      range,
+      innerFace: TUNNEL_INNER_FACE,
+    })),
+  ]);
+}
 
-function activeZone(u) {
+export const COURSE_COLLISION_ZONES = createCourseCollisionZones();
+
+function activeZone(zones, u) {
   let chosen = null;
-  for (const zone of COURSE_COLLISION_ZONES) {
+  for (const zone of zones) {
     if (!inWrappedRange(u, zone.range)) continue;
     if (!chosen || zone.innerFace < chosen.innerFace) chosen = zone;
   }
@@ -72,9 +80,13 @@ function interpolatePose(a, b, t) {
 }
 
 export class CourseCollision {
-  constructor(route, { vehicleHalfWidth = DEFAULT_VEHICLE_HALF_WIDTH } = {}) {
+  constructor(route, {
+    vehicleHalfWidth = DEFAULT_VEHICLE_HALF_WIDTH,
+    zones = COURSE_COLLISION_ZONES,
+  } = {}) {
     this.route = route;
     this.vehicleHalfWidth = vehicleHalfWidth;
+    this.zones = zones;
     this.elapsed = 0;
     this.lastImpactAt = -Infinity;
     this.previousPose = null;
@@ -88,7 +100,7 @@ export class CourseCollision {
 
   #stateAt(pose, hintDistance = null) {
     const road = this.route.nearest(pose.x, pose.z, hintDistance);
-    const zone = activeZone(road.u);
+    const zone = activeZone(this.zones, road.u);
     if (!zone) return { pose, road, zone: null, penetration: -Infinity, centreLimit: Infinity };
     const centreLimit = Math.max(0.5, zone.innerFace - this.vehicleHalfWidth);
     return {
@@ -134,7 +146,7 @@ export class CourseCollision {
     if (vehicle.enforceStripBounds === false) {
       const road = this.route.nearest(vehicle.x, vehicle.z, hintDistance);
       this.previousPose = { x: vehicle.x, z: vehicle.z, heading: vehicle.heading };
-      return { collided: false, road, zone: activeZone(road.u), impact: 0, emit: false };
+      return { collided: false, road, zone: activeZone(this.zones, road.u), impact: 0, emit: false };
     }
 
     const current = { x: vehicle.x, z: vehicle.z, heading: vehicle.heading };
@@ -144,7 +156,7 @@ export class CourseCollision {
     if (!contact) {
       this.previousPose = current;
       const road = this.route.nearest(vehicle.x, vehicle.z, hintDistance);
-      return { collided: false, road, zone: activeZone(road.u), impact: 0, emit: false };
+      return { collided: false, road, zone: activeZone(this.zones, road.u), impact: 0, emit: false };
     }
 
     const side = Math.sign(contact.road.lateral) || 1;

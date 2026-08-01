@@ -13,8 +13,9 @@ const formatTime = (seconds) => {
 };
 
 export class CircuitRace {
-  constructor(route) {
+  constructor(route, { runLabel = 'MIDNIGHT RUN' } = {}) {
     this.route = route;
+    this.runLabel = runLabel;
     this.lastLap = null;
     this.bestLap = null;
     this.reset();
@@ -63,7 +64,7 @@ export class CircuitRace {
       if (this.countdown >= 3.0) {
         this.phase = CIRCUIT_PHASE.RUNNING;
         this.lastRouteDistance = info.distance;
-        this.message = 'MIDNIGHT RUN';
+        this.message = this.runLabel;
       }
       return;
     }
@@ -111,7 +112,7 @@ export class CircuitRace {
       };
     }
     return {
-      title: this.phase === CIRCUIT_PHASE.COUNTDOWN ? 'START GRID' : 'MIDNIGHT RUN',
+      title: this.phase === CIRCUIT_PHASE.COUNTDOWN ? 'START GRID' : this.runLabel,
       rows: [
         ['LAP', formatTime(this.elapsed), '#8fdcff'],
         ['PROGRESS', `${Math.round(this.progress * 100)}%`],

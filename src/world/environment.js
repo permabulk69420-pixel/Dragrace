@@ -90,6 +90,70 @@ function skyCanvas() {
   return c;
 }
 
+function tropicalSkyCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 512;
+  const g = c.getContext('2d');
+  const random = seededRandom(0x71cebeac);
+  const sky = g.createLinearGradient(0, 0, 0, 512);
+  sky.addColorStop(0.00, '#030716');
+  sky.addColorStop(0.28, '#101a42');
+  sky.addColorStop(0.48, '#4b315f');
+  sky.addColorStop(0.565, '#bd667a');
+  sky.addColorStop(0.64, '#30203a');
+  sky.addColorStop(1.00, '#070a13');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, 1024, 512);
+
+  for (const [x, colour, radius] of [[155, '#ff759d', 245], [785, '#2fd5df', 205]]) {
+    const glow = g.createRadialGradient(x, 282, 2, x, 282, radius);
+    glow.addColorStop(0, `${colour}a8`);
+    glow.addColorStop(0.28, `${colour}38`);
+    glow.addColorStop(1, `${colour}00`);
+    g.fillStyle = glow;
+    g.fillRect(0, 80, 1024, 360);
+  }
+
+  // A low, varied coastal skyline keeps the horizon populated without the
+  // oversized black rectangles of the industrial environment map.
+  let x = 0;
+  while (x < 1024) {
+    const width = 5 + random() * 14;
+    const height = 3 + Math.pow(random(), 2.5) * 30;
+    g.fillStyle = random() > 0.68 ? '#17162d' : '#101427';
+    g.fillRect(x, 288 - height, width, height + 13);
+    if (height > 13 && random() > 0.52) {
+      g.fillStyle = random() > 0.5 ? '#d27b7c' : '#4ab3bd';
+      g.globalAlpha = 0.34;
+      for (let wy = 291 - height; wy < 284; wy += 6) {
+        for (let wx = x + 2; wx < x + width - 1; wx += 5) {
+          if (random() > 0.58) g.fillRect(wx, wy, 1.5, 1.5);
+        }
+      }
+      g.globalAlpha = 1;
+    }
+    x += width + 2 + random() * 5;
+  }
+
+  g.globalAlpha = 0.16;
+  for (let i = 0; i < 24; i++) {
+    const y = 115 + random() * 165;
+    g.fillStyle = i % 2 ? '#b7a3c5' : '#6196b3';
+    g.beginPath();
+    g.ellipse(random() * 1024, y, 70 + random() * 210, 3 + random() * 10, (random() - 0.5) * 0.04, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  for (let i = 0; i < 260; i++) {
+    const y = random() * 205;
+    const alpha = (0.16 + random() * 0.68) * (1 - y / 275);
+    g.fillStyle = `rgba(225,235,255,${alpha})`;
+    g.fillRect(random() * 1024, y, random() > 0.965 ? 2 : 1, 1);
+  }
+  return c;
+}
+
 /**
  * @param {THREE.WebGLRenderer} renderer
  * @param {THREE.Scene} scene
@@ -98,6 +162,9 @@ export function setupEnvironment(renderer, scene) {
   const sky = new THREE.CanvasTexture(skyCanvas());
   sky.mapping = THREE.EquirectangularReflectionMapping;
   sky.colorSpace = THREE.SRGBColorSpace;
+  const tropicalSky = new THREE.CanvasTexture(tropicalSkyCanvas());
+  tropicalSky.mapping = THREE.EquirectangularReflectionMapping;
+  tropicalSky.colorSpace = THREE.SRGBColorSpace;
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   pmrem.compileEquirectangularShader();
@@ -139,6 +206,18 @@ export function setupEnvironment(renderer, scene) {
   skylineFill.position.set(110, 30, 120);
   scene.add(skylineFill);
 
+  function applyTheme(theme = {}) {
+    scene.background = theme.background === 'tropical' ? tropicalSky : sky;
+    scene.fog.color.setHex(theme.fog ?? 0x09131e);
+    scene.fog.density = theme.fogDensity ?? 0.00078;
+    renderer.toneMappingExposure = theme.exposure ?? 1.20;
+    moon.color.setHex(theme.moon ?? 0xa8caff);
+    hemisphere.color.setHex(theme.hemisphereSky ?? 0x779dd3);
+    hemisphere.groundColor.setHex(theme.hemisphereGround ?? 0x2a1d15);
+    cityBounce.color.setHex(theme.bounce ?? 0xff7f42);
+    skylineFill.color.setHex(theme.skyline ?? 0x675cff);
+  }
+
   return {
     // `sun` is retained as a compatibility alias for the existing renderer loop.
     sun: moon,
@@ -147,5 +226,7 @@ export function setupEnvironment(renderer, scene) {
     cityBounce,
     skylineFill,
     envMap,
+    tropicalSky,
+    applyTheme,
   };
 }

@@ -11,6 +11,7 @@ import { buildCar } from './car/car.js';
 import { setupEnvironment } from './world/environment.js';
 import { buildTrack } from './world/track.js';
 import { buildStaticCollisionWorld } from './world/staticCollision.js';
+import { DEFAULT_LEVEL_ID, getLevelChoices } from './world/levels.js';
 import { CircuitRace, CIRCUIT_PHASE, formatTime } from './world/circuitRace.js';
 import { Vehicle } from './physics/vehicle.js';
 import { Controls } from './input/controls.js';
@@ -66,9 +67,14 @@ step(22, 'Lighting the city…');
 const lights = setupEnvironment(renderer, scene);
 
 step(40, 'Building Midnight Circuit…');
-const track = buildTrack();
+let selectedLevelId = DEFAULT_LEVEL_ID;
+let track = buildTrack({ levelId: selectedLevelId });
 scene.add(track.object);
-const staticCollisions = buildStaticCollisionWorld(track.object);
+let staticCollisions = buildStaticCollisionWorld(track.object, {
+  route: track.route,
+  boundaryConfig: track.boundaryConfig,
+});
+lights.applyTheme(track.environmentTheme);
 
 step(62, 'Building the car…');
 const car = buildCar({ paint: 0xb3121b });
@@ -96,7 +102,7 @@ step(74, 'Wiring up the controls…');
 const controls = new Controls(renderer, rig);
 const audio = new EngineAudio();
 const vehicle = new Vehicle({ enforceStripBounds: false });
-const race = new CircuitRace(track.route);
+let race = new CircuitRace(track.route, { runLabel: track.name.toUpperCase() });
 
 /* -------------------------------------------------------------------------- */
 /* Cameras (desktop only - in VR the headset owns the view)                    */
@@ -143,6 +149,82 @@ function updateDesktopCamera(dt, time) {
 step(88, 'Almost there…');
 
 const enter = document.getElementById('enter');
+const levelPicker = document.getElementById('level-picker');
+const levelSummary = document.getElementById('level-summary');
+const levelChoices = getLevelChoices();
+let switchingLevel = false;
+
+function renderLevelPicker() {
+  levelPicker.innerHTML = levelChoices.map((level) => `
+    <button type="button" class="level-card${level.id === selectedLevelId ? ' selected' : ''}"
+      data-level="${level.id}" aria-pressed="${level.id === selectedLevelId}">
+      <span class="level-name">${level.name}</span>
+      <span class="level-meta">${level.lengthKilometres.toFixed(2)} km · ${level.tagline}</span>
+      <span class="level-description">${level.description}</span>
+    </button>
+  `).join('');
+  levelPicker.querySelectorAll('[data-level]').forEach((button) => {
+    button.addEventListener('click', () => void switchLevel(button.dataset.level));
+  });
+  levelSummary.textContent = `${track.name} selected · ${(track.route.length / 1000).toFixed(2)} km`;
+}
+
+function disposeTrackObject(object) {
+  const geometries = new Set();
+  const materials = new Set();
+  const textures = new Set();
+  object.traverse((child) => {
+    if (child.geometry) geometries.add(child.geometry);
+    const childMaterials = Array.isArray(child.material) ? child.material : child.material ? [child.material] : [];
+    for (const material of childMaterials) {
+      materials.add(material);
+      for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+    }
+  });
+  object.removeFromParent();
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((material) => material.dispose());
+  textures.forEach((texture) => texture.dispose());
+}
+
+async function switchLevel(levelId) {
+  if (switchingLevel || levelId === selectedLevelId) return;
+  switchingLevel = true;
+  levelPicker.classList.add('busy');
+  levelPicker.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+  const choice = levelChoices.find((level) => level.id === levelId);
+  step(36, `Building ${choice?.name ?? 'circuit'}…`);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+
+  try {
+    const nextTrack = buildTrack({ levelId });
+    const nextCollisions = buildStaticCollisionWorld(nextTrack.object, {
+      route: nextTrack.route,
+      boundaryConfig: nextTrack.boundaryConfig,
+    });
+    scene.add(nextTrack.object);
+    const previousObject = track.object;
+    track = nextTrack;
+    staticCollisions = nextCollisions;
+    race = new CircuitRace(track.route, { runLabel: track.name.toUpperCase() });
+    selectedLevelId = track.id;
+    lights.applyTheme(track.environmentTheme);
+    resetCar();
+    disposeTrackObject(previousObject);
+    publishDebugHandles();
+    renderLevelPicker();
+    step(100, `${track.name} ready`);
+  } catch (error) {
+    status.textContent = `Could not load level: ${error.message}`;
+    throw error;
+  } finally {
+    switchingLevel = false;
+    levelPicker.classList.remove('busy');
+    levelPicker.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+  }
+}
+
+renderLevelPicker();
 const vrSlot = document.getElementById('btn-vr');
 const vrButton = VRButton.createButton(renderer, {
   optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'layers'],
@@ -171,6 +253,7 @@ function styleVRButton(el) {
 }
 
 function beginSession() {
+  if (switchingLevel) return;
   overlay.classList.add('hidden');
   audio.start();
 }
@@ -337,4 +420,19 @@ function updateHud() {
   document.getElementById('hud-info').innerHTML = rows.join('<br>');
 }
 
-Object.assign(window, { THREE, scene, renderer, car, vehicle, race, track, staticCollisions, camera });
+function publishDebugHandles() {
+  Object.assign(window, {
+    THREE,
+    scene,
+    renderer,
+    car,
+    vehicle,
+    race,
+    track,
+    staticCollisions,
+    camera,
+    selectedLevelId,
+  });
+}
+
+publishDebugHandles();
