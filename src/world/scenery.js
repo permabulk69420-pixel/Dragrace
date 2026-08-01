@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { DRIVEABLE_HALF_WIDTH, ROAD_HALF_WIDTH } from './course.js';
 import { makeChevronTexture, makeSignTexture, seededRandom } from './materials.js';
 import { buildRoadsideDetails } from './roadsideDetails.js';
+import { buildArchitecturalLandmarks } from './landmarks.js';
+import { buildIndustrialLandmarks } from './industrialLandmarks.js';
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -35,6 +37,26 @@ function setCount(object, count) {
   object.count = count;
   object.instanceMatrix.needsUpdate = true;
   if (object.instanceColor) object.instanceColor.needsUpdate = true;
+}
+
+function instancedBeams(group, definitions, material, name) {
+  const object = instance(new THREE.BoxGeometry(1, 1, 1), material, definitions.length, name);
+  const matrix = new THREE.Matrix4();
+  const quaternion = new THREE.Quaternion();
+  definitions.forEach(({ a, b, thickness }, index) => {
+    const direction = b.clone().sub(a);
+    const length = direction.length();
+    quaternion.setFromUnitVectors(Y_AXIS, direction.normalize());
+    matrix.compose(
+      a.clone().lerp(b, 0.5),
+      quaternion,
+      new THREE.Vector3(thickness, length, thickness)
+    );
+    object.setMatrixAt(index, matrix);
+  });
+  setCount(object, definitions.length);
+  group.add(object);
+  return object;
 }
 
 function normaliseUnitGeometry(geometry) {
@@ -99,6 +121,43 @@ function setbackTowerGeometry() {
   return geometry;
 }
 
+function tieredBoxGeometry(tiers) {
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  for (const tier of tiers) {
+    const source = new THREE.BoxGeometry(tier.width, tier.height, tier.depth).toNonIndexed();
+    source.translate(tier.x ?? 0, tier.y, tier.z ?? 0);
+    positions.push(...source.getAttribute('position').array);
+    normals.push(...source.getAttribute('normal').array);
+    uvs.push(...source.getAttribute('uv').array);
+    source.dispose();
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function crownedTowerGeometry() {
+  return tieredBoxGeometry([
+    { width: 1.00, height: 0.12, depth: 1.00, y: 0.06 },
+    { width: 0.68, height: 0.72, depth: 0.72, y: 0.48 },
+    { width: 0.90, height: 0.10, depth: 0.90, y: 0.89 },
+    { width: 0.42, height: 0.11, depth: 0.42, y: 0.965 },
+  ]);
+}
+
+function slabHotelGeometry() {
+  return tieredBoxGeometry([
+    { width: 1.00, height: 0.86, depth: 0.52, y: 0.43 },
+    { width: 0.20, height: 1.00, depth: 0.64, x: 0.36, y: 0.50 },
+    { width: 1.06, height: 0.04, depth: 0.58, y: 0.88 },
+  ]);
+}
+
 function gabledWarehouseGeometry() {
   const shape = new THREE.Shape();
   shape.moveTo(-0.5, 0);
@@ -129,6 +188,102 @@ function footprintClearance(route, x, z, width, depth, margin = 4.25) {
   };
 }
 
+function ridgeTerrainGeometry({
+  radiusX,
+  radiusZ,
+  height,
+  seed,
+  phase = 0,
+  segments = 144,
+  centreX = -70,
+  centreZ = -40,
+}) {
+  const random = seededRandom(seed);
+  const knots = Array.from({ length: 18 }, () => 0.58 + random() * 0.72);
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const sampleHeight = (angle, index) => {
+    const scaled = (index / segments) * knots.length;
+    const a = Math.floor(scaled) % knots.length;
+    const b = (a + 1) % knots.length;
+    const t = scaled - Math.floor(scaled);
+    const eased = t * t * (3 - 2 * t);
+    const broad = Math.sin(angle * 3 + phase) * 0.13 + Math.sin(angle * 7 - phase * 0.7) * 0.08;
+    return height * (THREE.MathUtils.lerp(knots[a], knots[b], eased) + broad);
+  };
+
+  for (let i = 0; i <= segments; i++) {
+    const wrapped = i === segments ? 0 : i;
+    const angle = (wrapped / segments) * Math.PI * 2;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const ripple = 1 + Math.sin(angle * 5 + phase) * 0.035;
+    const ridgeX = c * radiusX * ripple + centreX;
+    const ridgeZ = s * radiusZ * ripple + centreZ;
+    positions.push(
+      c * radiusX * 0.78 + centreX, -7.5, s * radiusZ * 0.78 + centreZ,
+      ridgeX, sampleHeight(angle, wrapped), ridgeZ,
+      c * radiusX * 1.19 + centreX, -13, s * radiusZ * 1.19 + centreZ
+    );
+    const u = i / segments;
+    uvs.push(u, 0, u, 0.54, u, 1);
+  }
+
+  for (let i = 0; i < segments; i++) {
+    const a = i * 3;
+    const b = (i + 1) * 3;
+    indices.push(
+      a, b, b + 1, a, b + 1, a + 1,
+      a + 1, b + 1, b + 2, a + 1, b + 2, a + 2
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function projectedGroundRibbon(route, { start, end, width }) {
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+  for (let i = 0; i < route.sampleCount; i++) {
+    const u = (i + 0.5) / route.sampleCount;
+    if (u < start || u > end) continue;
+    const a = route.frames[i];
+    const b = route.frames[i + 1];
+    const aRight = new THREE.Vector3(a.right.x, 0, a.right.z).normalize();
+    const bRight = new THREE.Vector3(b.right.x, 0, b.right.z).normalize();
+    const points = [
+      new THREE.Vector3(a.center.x, 0.012, a.center.z).addScaledVector(aRight, -width / 2),
+      new THREE.Vector3(a.center.x, 0.012, a.center.z).addScaledVector(aRight, width / 2),
+      new THREE.Vector3(b.center.x, 0.012, b.center.z).addScaledVector(bRight, width / 2),
+      new THREE.Vector3(b.center.x, 0.012, b.center.z).addScaledVector(bRight, -width / 2),
+    ];
+    const base = positions.length / 3;
+    for (const point of points) {
+      positions.push(point.x, point.y, point.z);
+      normals.push(0, 1, 0);
+    }
+    const v0 = a.distance / 8;
+    const v1 = b.distance / 8;
+    uvs.push(0, v0, 1, v0, 1, v1, 0, v1);
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function buildGround(root, materials) {
   const ground = mesh(new THREE.PlaneGeometry(1900, 1900, 1, 1), materials.ground, 'WorldGround', { receive: true });
   ground.rotation.x = -Math.PI / 2;
@@ -145,32 +300,38 @@ function buildGround(root, materials) {
   water.position.set(-110, -1.25, -665);
   root.add(water);
 
-  // Layered mountain silhouettes close the skyline without a high-poly terrain.
-  const hillGeo = new THREE.ConeGeometry(1, 1, 9, 1);
-  hillGeo.translate(0, 0.5, 0);
-  const hills = instance(hillGeo, materials.dirt, 28, 'Hills');
-  const random = seededRandom(0x4115c4e);
-  for (let i = 0; i < 28; i++) {
-    const angle = (i / 28) * Math.PI * 2;
-    const radius = 650 + random() * 180;
-    const p = new THREE.Vector3(Math.cos(angle) * radius - 80, -0.1, Math.sin(angle) * radius - 30);
-    const h = 65 + random() * 150;
-    hills.setMatrixAt(i, compose(p, new THREE.Vector3(80 + random() * 120, h, 80 + random() * 120), random() * Math.PI));
-  }
-  setCount(hills, 28);
-  root.add(hills);
+  // Continuous, softly rolling ridge bands replace the old collection of
+  // giant cone primitives. Their peaks are interpolated from broad seeded
+  // knots, so the horizon reads as terrain instead of repeated pyramids.
+  const farRidge = mesh(ridgeTerrainGeometry({
+    radiusX: 920,
+    radiusZ: 850,
+    height: 58,
+    seed: 0xf417e2,
+    phase: 1.7,
+  }), materials.terrainFar, 'FarMountainRidge', { receive: true });
+  const nearRidge = mesh(ridgeTerrainGeometry({
+    radiusX: 735,
+    radiusZ: 680,
+    height: 45,
+    seed: 0x4115c4e,
+    phase: 0.35,
+  }), materials.terrainNear, 'NearMountainRidge', { receive: true });
+  root.add(farRidge, nearRidge);
 }
 
-function buildCity(root, route, materials) {
+function buildCity(root, route, materials, avoidFootprints = []) {
   const random = seededRandom(0x00c17e5);
   const group = new THREE.Group();
   group.name = 'CityBuildings';
-  const max = 190;
+  const max = 112;
   const chamfered = instance(chamferedTowerGeometry(), materials.buildingGlass, max, 'ChamferedTowers', { receive: true });
   const setback = instance(setbackTowerGeometry(), materials.buildingConcrete, max, 'SetbackTowers', { receive: true });
   const roundGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1, false);
   roundGeo.translate(0, 0.5, 0);
   const round = instance(roundGeo, materials.buildingBrick, max, 'RoundCornerTowers', { receive: true });
+  const crowned = instance(crownedTowerGeometry(), materials.buildingGlass, max, 'CrownedOfficeTowers', { receive: true });
+  const slabs = instance(slabHotelGeometry(), materials.buildingConcrete, max, 'SlabHotels', { receive: true });
 
   const roofGeo = new THREE.BoxGeometry(1, 1, 1);
   roofGeo.translate(0, 0.5, 0);
@@ -185,14 +346,14 @@ function buildCity(root, route, materials) {
   const beacons = instance(beaconGeo, materials.buildingBeacon, max, 'BuildingRoofBeacons');
 
   const districts = [
-    { minX: 120, maxX: 520, minZ: -215, maxZ: 410, count: 72, minH: 15, maxH: 74 },
-    { minX: -170, maxX: 245, minZ: 245, maxZ: 570, count: 52, minH: 11, maxH: 48 },
-    { minX: -610, maxX: -315, minZ: -280, maxZ: 300, count: 32, minH: 10, maxH: 36 },
-    { minX: -70, maxX: 390, minZ: -455, maxZ: -250, count: 22, minH: 9, maxH: 26 },
+    { minX: 120, maxX: 520, minZ: -215, maxZ: 410, count: 40, minH: 16, maxH: 76 },
+    { minX: -170, maxX: 245, minZ: 245, maxZ: 570, count: 28, minH: 12, maxH: 48 },
+    { minX: -610, maxX: -315, minZ: -280, maxZ: 300, count: 20, minH: 10, maxH: 38 },
+    { minX: -70, maxX: 390, minZ: -455, maxZ: -250, count: 16, minH: 9, maxH: 28 },
   ];
 
-  const buildingMeshes = [chamfered, setback, round];
-  const buildingCounts = [0, 0, 0];
+  const buildingMeshes = [chamfered, setback, round, crowned, slabs];
+  const buildingCounts = [0, 0, 0, 0, 0];
   const footprints = [];
   let roofCount = 0;
   let podiumCount = 0;
@@ -213,16 +374,27 @@ function buildCity(root, route, materials) {
       // shaft, so ledges and base trim cannot sneak past the road check.
       const clearance = footprintClearance(route, x, z, width * 1.12, depth * 1.12);
       if (!clearance.ok) continue;
+      if (avoidFootprints.some((footprint) => (
+        Math.hypot(x - footprint.x, z - footprint.z) < clearance.radius + footprint.radius + 8
+      ))) continue;
       const yaw = Math.round(random() * 2) * Math.PI / 2;
 
       const styleRoll = random();
-      const style = height > 38 && styleRoll > 0.61 ? 2 : styleRoll > 0.46 ? 1 : 0;
+      const style = styleRoll < 0.24
+        ? 0
+        : styleRoll < 0.43
+          ? 1
+          : styleRoll < 0.58
+            ? 2
+            : styleRoll < 0.79
+              ? 3
+              : 4;
       const styleIndex = buildingCounts[style]++;
       const building = buildingMeshes[style];
       building.setMatrixAt(styleIndex, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(width, height, depth), yaw));
-      const colour = style === 0
+      const colour = style === 0 || style === 3
         ? new THREE.Color().setHSL(0.57 + random() * 0.035, 0.12 + random() * 0.12, 0.62 + random() * 0.18)
-        : style === 1
+        : style === 1 || style === 4
           ? new THREE.Color().setHSL(0.08 + random() * 0.05, 0.035 + random() * 0.06, 0.62 + random() * 0.17)
           : new THREE.Color().setHSL(0.025 + random() * 0.025, 0.13 + random() * 0.10, 0.57 + random() * 0.16);
       building.setColorAt(styleIndex, colour);
@@ -236,7 +408,7 @@ function buildCity(root, route, materials) {
         ));
       }
 
-      const ledgeLevels = style === 2 ? 0 : height > 31 ? 2 : 1;
+      const ledgeLevels = style === 2 || style === 3 ? 0 : height > 31 ? 2 : 1;
       for (let level = 0; level < ledgeLevels; level++) {
         const y = height * (ledgeLevels === 1 ? 0.68 : 0.38 + level * 0.34);
         ledges.setMatrixAt(ledgeCount++, compose(
@@ -292,17 +464,17 @@ function buildCity(root, route, materials) {
   return footprints;
 }
 
-function buildIndustrialDistrict(root, route, materials) {
+function buildIndustrialDistrict(root, route, materials, avoidFootprints = []) {
   const random = seededRandom(0x1ad057a1);
-  const warehouses = instance(gabledWarehouseGeometry(), materials.warehouse, 32, 'GabledWarehouses', { receive: true });
+  const warehouses = instance(gabledWarehouseGeometry(), materials.warehouse, 16, 'GabledWarehouses', { receive: true });
   const doorGeo = new THREE.BoxGeometry(1, 1, 1);
-  const loadingDoors = instance(doorGeo, materials.warehouseDoor, 32, 'WarehouseLoadingDoors');
+  const loadingDoors = instance(doorGeo, materials.warehouseDoor, 16, 'WarehouseLoadingDoors');
   const ventGeo = new THREE.CylinderGeometry(0.24, 0.31, 1, 10, 1);
   ventGeo.translate(0, 0.5, 0);
-  const roofVents = instance(ventGeo, materials.metal, 32, 'WarehouseRoofVents');
+  const roofVents = instance(ventGeo, materials.metal, 16, 'WarehouseRoofVents');
   const footprints = [];
   let warehouseCount = 0;
-  for (let tries = 0; tries < 900 && warehouseCount < 28; tries++) {
+  for (let tries = 0; tries < 600 && warehouseCount < 12; tries++) {
     const x = -560 + random() * 660;
     const z = -560 + random() * 265;
     const w = 22 + random() * 38;
@@ -310,6 +482,9 @@ function buildIndustrialDistrict(root, route, materials) {
     const h = 7 + random() * 8;
     const clearance = footprintClearance(route, x, z, w, d, 5.0);
     if (!clearance.ok) continue;
+    if (avoidFootprints.some((footprint) => (
+      Math.hypot(x - footprint.x, z - footprint.z) < clearance.radius + footprint.radius + 8
+    ))) continue;
     const yaw = Math.round(random()) * Math.PI / 2;
     const q = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, yaw);
     warehouses.setMatrixAt(warehouseCount, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(w, h, d), yaw));
@@ -341,7 +516,7 @@ function buildIndustrialDistrict(root, route, materials) {
 
   const containerGeo = new THREE.BoxGeometry(2.44, 2.59, 6.06);
   containerGeo.translate(0, 1.295, 0);
-  const containers = instance(containerGeo, materials.container, 190, 'ShippingContainers', { receive: true });
+  const containers = instance(containerGeo, materials.container, 128, 'ShippingContainers', { receive: true });
   const colours = [0xb43a2f, 0x235b83, 0x2f7556, 0xd18a27, 0x70757c, 0x7a3e70];
   let containerCount = 0;
   const yards = [
@@ -351,12 +526,12 @@ function buildIndustrialDistrict(root, route, materials) {
   for (const yard of yards) {
     for (let row = 0; row < 7; row++) {
       for (let col = 0; col < 13; col++) {
-        if (containerCount >= 190 || random() < 0.19) continue;
+        if (containerCount >= 120 || random() < 0.25) continue;
         const x = yard.x - yard.w / 2 + 10 + col * (yard.w - 20) / 12 + (random() - 0.5) * 1.2;
         const z = yard.z - yard.d / 2 + 9 + row * (yard.d - 18) / 6;
         if (route.nearest(x, z).distanceToCentre < 24) continue;
         const stack = random() > 0.64 ? 2 : 1;
-        for (let level = 0; level < stack && containerCount < 190; level++) {
+        for (let level = 0; level < stack && containerCount < 120; level++) {
           const p = new THREE.Vector3(x, level * 2.62, z);
           containers.setMatrixAt(containerCount, compose(p, new THREE.Vector3(1, 1, 1), Math.PI / 2));
           containers.setColorAt(containerCount, new THREE.Color(colours[Math.floor(random() * colours.length)]));
@@ -370,9 +545,9 @@ function buildIndustrialDistrict(root, route, materials) {
 
   const tankGeo = new THREE.CylinderGeometry(1, 1, 1, 14, 1);
   tankGeo.translate(0, 0.5, 0);
-  const tanks = instance(tankGeo, materials.metal, 18, 'StorageTanks', { receive: true });
+  const tanks = instance(tankGeo, materials.metal, 12, 'StorageTanks', { receive: true });
   let tankCount = 0;
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 12; i++) {
     const row = Math.floor(i / 6);
     const col = i % 6;
     const r = 5 + random() * 3;
@@ -389,7 +564,7 @@ function buildIndustrialDistrict(root, route, materials) {
 
   const stackGeo = new THREE.CylinderGeometry(0.72, 1.05, 1, 14, 1);
   stackGeo.translate(0, 0.5, 0);
-  const stacks = instance(stackGeo, materials.concreteDark, 12, 'IndustrialSmokestacks');
+  const stacks = instance(stackGeo, materials.concreteDark, 6, 'IndustrialSmokestacks');
   const beaconMaterial = new THREE.MeshStandardMaterial({
     color: 0xff6048,
     emissive: 0xff210d,
@@ -397,9 +572,9 @@ function buildIndustrialDistrict(root, route, materials) {
     roughness: 0.22,
   });
   const beaconGeo = new THREE.SphereGeometry(0.16, 12, 8);
-  const beacons = instance(beaconGeo, beaconMaterial, 12, 'IndustrialWarningBeacons');
+  const beacons = instance(beaconGeo, beaconMaterial, 6, 'IndustrialWarningBeacons');
   let stackCount = 0;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 6; i++) {
     const row = Math.floor(i / 4);
     const col = i % 4;
     const height = 17 + random() * 23;
@@ -442,23 +617,64 @@ function makeCrane(x, z, yaw, materials) {
   g.name = 'ContainerCrane';
   g.position.set(x, 0, z);
   g.rotation.y = yaw;
-  const legs = [-10, 10];
-  for (const lx of legs) {
-    const leg = mesh(new THREE.BoxGeometry(1.2, 34, 1.2), materials.darkMetal, 'CraneLeg');
-    leg.position.set(lx, 17, 0);
-    leg.rotation.z = lx < 0 ? -0.1 : 0.1;
-    g.add(leg);
-  }
+  const legs = instance(new THREE.BoxGeometry(1.2, 34, 1.2), materials.darkMetal, 2, 'CraneLegs');
+  const bogies = instance(new THREE.BoxGeometry(5.6, 1.2, 4.8), materials.darkMetal, 2, 'CraneWheelBogies');
+  const legMatrix = new THREE.Matrix4();
+  const legQuaternion = new THREE.Quaternion();
+  [-10, 10].forEach((lx, index) => {
+    legQuaternion.setFromEuler(new THREE.Euler(0, 0, lx < 0 ? -0.1 : 0.1));
+    legMatrix.compose(new THREE.Vector3(lx, 17, 0), legQuaternion, new THREE.Vector3(1, 1, 1));
+    legs.setMatrixAt(index, legMatrix);
+    bogies.setMatrixAt(index, new THREE.Matrix4().makeTranslation(lx, 0.65, 0));
+  });
+  setCount(legs, 2);
+  setCount(bogies, 2);
+  g.add(legs, bogies);
   const top = mesh(new THREE.BoxGeometry(34, 1.7, 2.0), materials.darkMetal, 'CraneTop');
   top.position.y = 33;
   g.add(top);
-  const boom = mesh(new THREE.BoxGeometry(58, 1.3, 1.5), materials.barrierStripe, 'CraneBoom');
-  boom.position.set(14, 36, 0);
-  boom.rotation.z = -0.08;
-  g.add(boom);
-  const cab = mesh(new THREE.BoxGeometry(4.5, 3.5, 4), materials.coolLamp, 'CraneCab');
+  // Open truss bracing gives the crane a readable industrial silhouette from
+  // the road instead of one large red rectangular boom.
+  const legBraces = [];
+  for (let y = 4; y < 31; y += 6.5) {
+    const flip = Math.floor(y / 6.5) % 2 ? 1 : -1;
+    legBraces.push({
+      a: new THREE.Vector3(-9.4 * flip, y, -0.4),
+      b: new THREE.Vector3(9.4 * flip, y + 6.2, -0.4),
+      thickness: 0.34,
+    });
+  }
+  instancedBeams(g, legBraces, materials.metal, 'CraneLegBraces');
+  const boomStart = -15;
+  const boomEnd = 48;
+  const boomTruss = [];
+  for (const y of [34.8, 38.0]) {
+    boomTruss.push({
+      a: new THREE.Vector3(boomStart, y, 0),
+      b: new THREE.Vector3(boomEnd, y - 1.9, 0),
+      thickness: 0.52,
+    });
+  }
+  for (let bx = boomStart; bx < boomEnd - 5; bx += 7) {
+    const topA = new THREE.Vector3(bx, 37.6 - (bx - boomStart) * 0.03, 0);
+    const bottomB = new THREE.Vector3(bx + 7, 34.6 - (bx + 7 - boomStart) * 0.03, 0);
+    boomTruss.push({ a: topA, b: bottomB, thickness: 0.25 });
+  }
+  instancedBeams(g, boomTruss, materials.barrierStripe, 'CraneBoomTruss');
+  const cab = mesh(new THREE.BoxGeometry(4.5, 3.5, 4), materials.buildingGlass, 'CraneCab');
   cab.position.set(-4, 30.5, 0);
   g.add(cab);
+  const trolley = mesh(new THREE.BoxGeometry(5.4, 1.2, 4.2), materials.darkMetal, 'CraneTrolley');
+  trolley.position.set(23, 34.4, 0);
+  g.add(trolley);
+  instancedBeams(g, [21.6, 24.4].map((cableX) => ({
+    a: new THREE.Vector3(cableX, 34, 0),
+    b: new THREE.Vector3(cableX, 10.5, 0),
+    thickness: 0.07,
+  })), materials.darkMetal, 'CraneHoistCables');
+  const spreader = mesh(new THREE.BoxGeometry(8.5, 0.45, 2.2), materials.warning, 'CraneSpreader');
+  spreader.position.set(23, 10.2, 0);
+  g.add(spreader);
   return g;
 }
 
@@ -470,12 +686,33 @@ function buildViaductSupports(root, route, materials) {
   const beamGeo = new THREE.BoxGeometry(1, 1, 1);
   const pillars = instance(pillarGeo, materials.concreteDark, 64, 'ViaductPillars', { receive: true });
   const beams = instance(beamGeo, materials.concreteDark, 48, 'ViaductCrossbeams');
+  const footings = instance(beamGeo, materials.concrete, 64, 'ViaductPierFootings', { receive: true });
+  const cabinets = instance(beamGeo, materials.darkMetal, 32, 'ViaductUtilityCabinets');
   let pillarCount = 0;
   let beamCount = 0;
+  let footingCount = 0;
+  let cabinetCount = 0;
+
+  const serviceRoad = mesh(projectedGroundRibbon(route, {
+    start: 0.245,
+    end: 0.505,
+    width: 11.5,
+  }), materials.shoulder, 'ViaductServiceRoad', { receive: true });
+  root.add(serviceRoad);
   for (let d = start; d <= end; d += 42) {
     const frame = route.atDistance(d);
     const height = Math.max(2, frame.center.y - 1.15);
     pillars.setMatrixAt(pillarCount++, compose(new THREE.Vector3(frame.center.x, 0, frame.center.z), new THREE.Vector3(1, height, 1)));
+    footings.setMatrixAt(footingCount++, compose(
+      new THREE.Vector3(frame.center.x, 0.24, frame.center.z),
+      new THREE.Vector3(5.2, 0.48, 5.2),
+      frame.heading
+    ));
+    if (Math.floor(d / 42) % 2 === 0) {
+      const cabinet = route.pointAt(d, 4.3, 0);
+      cabinet.y = 1.1;
+      cabinets.setMatrixAt(cabinetCount++, compose(cabinet, new THREE.Vector3(2.2, 2.2, 1.25), frame.heading));
+    }
     beams.setMatrixAt(beamCount++, compose(
       new THREE.Vector3(frame.center.x, frame.center.y - 1.45, frame.center.z),
       new THREE.Vector3(18, 1.05, 1.8),
@@ -494,6 +731,11 @@ function buildViaductSupports(root, route, materials) {
       const p = route.pointAt(d, side * 10.4, 0);
       p.y = 0;
       pillars.setMatrixAt(pillarCount++, compose(p, new THREE.Vector3(0.66, height, 0.66)));
+      footings.setMatrixAt(footingCount++, compose(
+        new THREE.Vector3(p.x, 0.22, p.z),
+        new THREE.Vector3(4.2, 0.44, 4.2),
+        frame.heading
+      ));
     }
     beams.setMatrixAt(beamCount++, compose(
       new THREE.Vector3(frame.center.x, frame.center.y - 1.4, frame.center.z),
@@ -503,7 +745,9 @@ function buildViaductSupports(root, route, materials) {
   }
   setCount(pillars, pillarCount);
   setCount(beams, beamCount);
-  root.add(pillars, beams);
+  setCount(footings, footingCount);
+  setCount(cabinets, cabinetCount);
+  root.add(pillars, beams, footings, cabinets);
 }
 
 function buildStreetLights(root, route, materials) {
@@ -954,9 +1198,19 @@ export function buildScenery(route, materials) {
   const animatedMaterials = [];
 
   buildGround(root, materials);
-  const cityFootprints = buildCity(root, route, materials);
-  const warehouseFootprints = buildIndustrialDistrict(root, route, materials);
-  root.userData.roadClearanceFootprints = [...cityFootprints, ...warehouseFootprints];
+  const landmarks = buildArchitecturalLandmarks(route, materials);
+  const industryLandmarks = buildIndustrialLandmarks(route, materials);
+  const reservedFootprints = [...landmarks.footprints, ...industryLandmarks.footprints];
+  const cityFootprints = buildCity(root, route, materials, reservedFootprints);
+  const warehouseFootprints = buildIndustrialDistrict(root, route, materials, reservedFootprints);
+  root.add(landmarks.object);
+  root.add(industryLandmarks.object);
+  root.userData.roadClearanceFootprints = [
+    ...cityFootprints,
+    ...warehouseFootprints,
+    ...landmarks.footprints,
+    ...industryLandmarks.footprints,
+  ];
   buildViaductSupports(root, route, materials);
   const streetLights = buildStreetLights(root, route, materials);
   buildChevrons(root, route);

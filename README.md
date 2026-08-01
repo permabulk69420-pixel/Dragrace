@@ -21,29 +21,38 @@ the preview car without rebuilding the course.
 - Layered asphalt, shoulders, reflective double centre lines, edge paint,
   direction arrows, city sidewalks, selective red/white apex kerbs and a full
   start grid.
-- World-owned collision at the visible inner faces of Jersey barriers and
-  harbour-tunnel walls, with angle-sensitive deflection, speed loss and pooled
-  impact sparks. Open street edges remain intentionally open.
+- Continuous world-owned collision at visible Jersey barriers, steel
+  guardrails and harbour-tunnel walls, with angle-sensitive deflection, speed
+  loss and pooled impact sparks. The full lap is physically contained; contact
+  resolves at the roadside structure rather than recentering the vehicle.
 - Bump- and roughness-mapped asphalt with repair patches, braking rubber,
   puddles, manholes, storm drains, expansion joints and hundreds of reflective
   lane and edge studs.
-- Dockyards with stacked containers, warehouses, storage tanks, rail lines and
-  three container cranes.
+- Dockyards with stacked containers, loading warehouses, a five-bay sawtooth
+  works, refinery, power station, storage tanks, rail lines and three detailed
+  truss container cranes with trolleys, hoist cables and spreaders.
 - Elevated skyway with a closed concrete slab, true downward-facing soffit,
   steel webs and flanges, crossbeams, piers, underdeck lights, graffiti,
-  protected edges and a 35 m high point.
+  protected edges, ground-level service road, pier footings, utility cabinets
+  and a 35 m high point.
 - Enclosed harbour tunnel with concrete shell, lower wall bands, cool ceiling
   fixtures, structural arch ribs, cable trays, emergency markers, detailed
   portals and local light pools.
-- Instanced skyline, rooftop machinery, mountain silhouettes, street lamps,
-  chevrons, barrier panels, chain-link fencing, utility lines, traffic signals,
-  boulevard trees, street furniture and industrial props.
-- A reduced, footprint-audited skyline uses chamfered, tiered and round tower
-  geometry, distinct glass/concrete/brick façades, physical floor ledges,
-  podiums, rooftop machinery and antenna beacons instead of another box layer.
-- Industrial buildings use gabled profiles, corrugated weathering, physical
-  loading doors and roof vents; large scenery footprints are rejected before
-  they can overlap the carriageway.
+- A reduced, footprint-audited background skyline uses five silhouette
+  families: chamfered towers, tiered towers, round-corner towers, crowned
+  offices and wide slab hotels. Glass, concrete and brick façades have distinct
+  colour, window rhythm, floor ledges, podiums, rooftop machinery and beacons.
+- Ten authored architectural landmarks create recognisable districts: an Art
+  Deco hotel, curved glass tower, open-deck parking structure, brick loft with
+  water tank and fire escapes, twin towers with skybridge, tuner garage,
+  broadcast tower and scaled variants with their own plazas and signage.
+- Industrial buildings use gabled and sawtooth profiles, corrugated
+  weathering, physical loading doors, roof vents, pipe racks, domed tanks,
+  banded stacks, boiler-house buttresses and lit clerestories.
+- Continuous rolling ridge meshes replace the old repeated cone mountains. The
+  rejected low-quality roadside tree generator is removed entirely.
+- Every large scenery footprint, including landmark plazas and industrial
+  yards, is rejected or pushed outward before it can overlap any route segment.
 - Fictional period-style billboards, neon storefronts, start/finish gantry,
   grid lights and a live course scoreboard.
 - Procedural night sky, city glow, stars, fog, reflection environment and a
@@ -106,7 +115,7 @@ vehicle.x = track.spawn.position.x;
 vehicle.z = track.spawn.position.z;
 vehicle.heading = track.spawn.heading;
 
-// Resolve a plain mutable vehicle pose against barriers and tunnel walls.
+// Resolve a plain mutable vehicle pose against barriers, guardrails and tunnel walls.
 // Contract: x, z, heading and speed; no dependency on this project's car.
 const hit = track.resolveVehicle(vehicle, previousRouteDistance, deltaTime);
 const road = hit.road;
@@ -143,10 +152,12 @@ behaviour are preserved.
 src/
   world/
     course.js          pure route, frames, spawn and nearest-surface queries
-    courseCollision.js visible barrier/tunnel collision for any plain vehicle pose
+    courseCollision.js visible full-lap edge collision for any plain vehicle pose
     roadGeometry.js    ribbons, barriers, fascia and tunnel sweep geometry
     materials.js       procedural textures and shared materials
-    scenery.js         instanced city, dock, lighting, signs and hero props
+    scenery.js         district composition, terrain, dock, lighting and hero props
+    landmarks.js       authored hotel, tower, loft, garage and parking kits
+    industrialLandmarks.js authored factory, refinery and power-station kits
     roadsideDetails.js road wear, street props, tunnel detail and impact effects
     track.js           assembles the complete world and integration API
     environment.js     night sky, fog, IBL and broad lighting
@@ -165,14 +176,15 @@ and instance matrices for non-finite values.
 
 | Component | Mesh draws | Rendered triangles |
 |---|---:|---:|
-| Course and environment | 137 | 124,779 |
+| Course and environment | 273 | 118,549 |
 | Existing car | 164 | 59,850 |
-| Estimated combined scene | 301 | 184,629 |
+| Estimated combined scene | 437 | 178,399 |
 
-Repeated scenery accounts for **4,632 instances**. The visual pass favours
-instancing over flattening detail away, so road studs, tunnel ribs, trees,
-street furniture and structural parts remain legible while the draw-call total
-stays inside the project's Quest guard.
+Repeated scenery accounts for **4,749 instances**. The larger authored landmark
+set intentionally spends more draws on silhouette and structural detail, while
+factory bays, refinery tanks, stack bands, crane trusses, road studs and tunnel
+ribs remain instanced. The environment triangle count is lower than the prior
+version despite the substantial geometry upgrade.
 
 ## Checks and deployment
 
@@ -186,11 +198,12 @@ The checks cover:
 - all original car hierarchy, scale, draw-call and triangle budgets;
 - original drag physics, timing and frame-rate independence;
 - course length, elevation, grade, checkpoints and road-surface queries;
-- barrier deflection, collision speed loss, open roadside sections and tunnel
-  wall collision;
+- barrier/guardrail deflection, collision speed loss, tunnel wall collision and
+  200-point full-lap edge-coverage sampling;
 - a finite, explicitly downward-facing overpass soffit;
-- removal of the rejected street-front/awning filler and a geometric clearance
-  audit covering city buildings, warehouses, tanks and smokestacks;
+- removal of the rejected street-front/awning filler, pyramid terrain and tree
+  generator, plus a geometric clearance audit covering all 146 large scenery
+  and landmark footprints;
 - complete world construction, required landmarks, finite geometry and
   instance matrices, plus world draw-call/triangle budgets.
 

@@ -391,20 +391,35 @@ export function createWorldMaterials() {
   const asphaltRoughness = noiseTexture(0xa512f00, { base: 208, spread: 68 });
   const concreteBump = noiseTexture(0xc0acb00, { base: 128, spread: 34 });
   const buildingBump = noiseTexture(0xb011d00, { base: 128, spread: 22 });
-  const makeBuildingMaterial = (facade, { roughness, metalness }) => new THREE.MeshStandardMaterial({
-    color: 0xffffff,
+  const makeBuildingMaterial = (facade, { roughness, metalness, color, emissiveIntensity }) => new THREE.MeshStandardMaterial({
+    color,
     map: facade.map,
     bumpMap: buildingBump,
     bumpScale: 0.025,
     emissive: 0xffffff,
     emissiveMap: facade.emissiveMap,
-    emissiveIntensity: 0.68,
+    emissiveIntensity,
     roughness,
     metalness,
   });
-  const buildingGlass = makeBuildingMaterial(glassFacades, { roughness: 0.48, metalness: 0.24 });
-  const buildingConcrete = makeBuildingMaterial(concreteFacades, { roughness: 0.86, metalness: 0.04 });
-  const buildingBrick = makeBuildingMaterial(brickFacades, { roughness: 0.90, metalness: 0.02 });
+  const buildingGlass = makeBuildingMaterial(glassFacades, {
+    roughness: 0.38,
+    metalness: 0.28,
+    color: 0xa6bfd0,
+    emissiveIntensity: 0.44,
+  });
+  const buildingConcrete = makeBuildingMaterial(concreteFacades, {
+    roughness: 0.86,
+    metalness: 0.04,
+    color: 0xc4b8a8,
+    emissiveIntensity: 0.34,
+  });
+  const buildingBrick = makeBuildingMaterial(brickFacades, {
+    roughness: 0.90,
+    metalness: 0.02,
+    color: 0xa66b56,
+    emissiveIntensity: 0.36,
+  });
 
   return {
     road: new THREE.MeshStandardMaterial({
@@ -433,6 +448,8 @@ export function createWorldMaterials() {
     concreteDark: new THREE.MeshStandardMaterial({ color: 0x555a61, map: concrete, bumpMap: concreteBump, bumpScale: 0.065, roughness: 0.94 }),
     underDeck: new THREE.MeshStandardMaterial({ color: 0x6a6c70, map: concrete, bumpMap: concreteBump, bumpScale: 0.085, roughness: 0.92, metalness: 0.03 }),
     girder: new THREE.MeshStandardMaterial({ color: 0x252a30, roughness: 0.52, metalness: 0.78 }),
+    guardrail: new THREE.MeshStandardMaterial({ color: 0xaeb8c0, roughness: 0.34, metalness: 0.88 }),
+    guardrailPost: new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.48, metalness: 0.76 }),
     curbFace: new THREE.MeshStandardMaterial({ color: 0x8e9297, map: concrete, bumpMap: concreteBump, bumpScale: 0.04, roughness: 0.9 }),
     barrierStripe: new THREE.MeshStandardMaterial({ color: 0xc62828, roughness: 0.65, emissive: 0x220000 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x303741, roughness: 0.55, metalness: 0.72 }),
@@ -440,8 +457,10 @@ export function createWorldMaterials() {
     tunnelRib: new THREE.MeshStandardMaterial({ color: 0x343a42, roughness: 0.48, metalness: 0.76 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xffe1a0, emissive: 0xffa342, emissiveIntensity: 5.5, roughness: 0.25 }),
     coolLamp: new THREE.MeshStandardMaterial({ color: 0xd8f1ff, emissive: 0x80cfff, emissiveIntensity: 5.0, roughness: 0.25 }),
-    ground: new THREE.MeshStandardMaterial({ color: 0x364038, map: ground, roughness: 1 }),
+    ground: new THREE.MeshStandardMaterial({ color: 0x424a43, map: ground, roughness: 1 }),
     dirt: new THREE.MeshStandardMaterial({ color: 0x34302a, roughness: 1 }),
+    terrainNear: new THREE.MeshStandardMaterial({ color: 0x222c31, roughness: 1, metalness: 0 }),
+    terrainFar: new THREE.MeshStandardMaterial({ color: 0x18212a, roughness: 1, metalness: 0 }),
     // `building` remains a compatibility alias; the city builder uses the
     // three distinct façade/silhouette families below.
     building: buildingGlass,

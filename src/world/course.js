@@ -23,6 +23,16 @@ export const BARRIER_RANGES = Object.freeze([
 ]);
 export const TUNNEL_RANGE = Object.freeze([0.696, 0.804]);
 
+// Open sections use a visible two-rail steel guardrail instead of silently
+// letting the vehicle leave the authored world. Together with BARRIER_RANGES
+// and TUNNEL_RANGE these spans provide continuous, visible edge protection for
+// the complete lap. The collision layer imports the same ranges.
+export const GUARDRAIL_RANGES = Object.freeze([
+  Object.freeze([0.000, 0.018]),
+  Object.freeze([0.610, 0.645]),
+  Object.freeze([0.875, 1.000]),
+]);
+
 // Hand-authored in metres.  The broad radii suit a fast street car while the
 // elevation profile creates a dockside climb, high viaduct and tunnel descent.
 export const COURSE_CONTROL_POINTS = Object.freeze([

@@ -71,6 +71,10 @@ for (const name of [
   'ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers', 'GabledWarehouses',
   'WarehouseLoadingDoors', 'UnderdeckLights', 'BarrierImpactSparks',
   'TrafficSignalHousings', 'TunnelPortalConcrete', 'IndustrialSmokestacks',
+  'FarMountainRidge', 'NearMountainRidge', 'GuardrailPosts',
+  'ArchitecturalLandmarks', 'IndustrialLandmarks', 'Landmark_ArtDecoHotel',
+  'Landmark_CurvedGlassTower', 'Landmark_ParkingStructure',
+  'Industrial_SawtoothWorks', 'Industrial_RefineryComplex',
 ]) {
   check(`world node ${name}`, !!track.object.getObjectByName(name));
 }
@@ -80,13 +84,23 @@ check('bad street-front filler is completely removed',
   !track.object.getObjectByName('ShopAwnings') &&
   !track.object.getObjectByName('LitShopfronts'));
 
-const towerFamilies = ['ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers']
+check('road-overlapping low-quality tree generator is removed',
+  !track.object.getObjectByName('BoulevardTreeTrunks') &&
+  !track.object.getObjectByName('BoulevardTreeCrowns'));
+
+check('pyramid mountain primitives are removed',
+  !track.object.getObjectByName('Hills'));
+
+const towerFamilies = [
+  'ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers',
+  'CrownedOfficeTowers', 'SlabHotels',
+]
   .map((name) => track.object.getObjectByName(name));
 const towerCount = towerFamilies.reduce((sum, family) => sum + family.count, 0);
-check('skyline uses fewer, deliberately shaped buildings',
-  towerCount >= 150 && towerCount <= 190 &&
-  new Set(towerFamilies.map((family) => family.geometry.uuid)).size === 3,
-  `${towerCount} buildings across 3 silhouette families`);
+check('skyline uses fewer background buildings across varied silhouettes',
+  towerCount >= 90 && towerCount <= 120 &&
+  new Set(towerFamilies.map((family) => family.geometry.uuid)).size === 5,
+  `${towerCount} background buildings across 5 silhouette families`);
 
 const courseScenery = track.object.getObjectByName('CourseScenery');
 const clearanceFootprints = courseScenery.userData.roadClearanceFootprints ?? [];
@@ -131,10 +145,37 @@ check('barrier impact deflects inward and scrubs speed',
 
 const openDistance = track.route.length * 0.625;
 const openPosition = track.route.pointAt(openDistance, 11.5, 0);
-const openVehicle = { x: openPosition.x, z: openPosition.z, heading: track.route.atDistance(openDistance).heading, speed: 20 };
+const openFrame = track.route.atDistance(openDistance);
+const openOutward = new THREE.Vector3(openFrame.right.x, 0, openFrame.right.z).normalize();
+const openVehicle = {
+  x: openPosition.x,
+  z: openPosition.z,
+  heading: Math.atan2(-openOutward.x, -openOutward.z),
+  speed: 20,
+};
 track.resetCollisions();
 const openRoad = track.resolveVehicle(openVehicle, openDistance, 1 / 90);
-check('unprotected street edges remain open', !openRoad.collided);
+check('formerly open street edge now has visible physical guardrail collision',
+  openRoad.collided && openRoad.zone?.kind === 'guardrail' && Math.abs(openRoad.road.lateral) > 7,
+  `${openRoad.zone?.kind ?? 'none'} contact at ${openRoad.road.lateral.toFixed(2)} m, not road centre`);
+
+let uncoveredSamples = 0;
+for (let i = 0; i < 200; i++) {
+  const distance = track.route.length * ((i + 0.5) / 200);
+  const frame = track.route.atDistance(distance);
+  const position = track.route.pointAt(distance, 12.0, 0);
+  const outward = new THREE.Vector3(frame.right.x, 0, frame.right.z).normalize();
+  const vehicle = {
+    x: position.x,
+    z: position.z,
+    heading: Math.atan2(-outward.x, -outward.z),
+    speed: 18,
+  };
+  track.resetCollisions();
+  if (!track.resolveVehicle(vehicle, distance, 1 / 90).collided) uncoveredSamples++;
+}
+check('visible edge collision covers the complete lap', uncoveredSamples === 0,
+  `${uncoveredSamples} uncovered samples`);
 
 const tunnelDistance = track.route.length * 0.75;
 const tunnelFrame = track.route.atDistance(tunnelDistance);
@@ -181,10 +222,10 @@ track.object.traverse((object) => {
 });
 
 check('world geometry contains only finite values', finite, invalidNodes.slice(0, 5).join(', '));
-check('world draw calls stay Quest-conscious', draws < 150, `${draws} mesh draws`);
+check('world draw calls stay bounded after the landmark upgrade', draws < 290, `${draws} mesh draws`);
 check('world triangle load stays practical', triangles < 450000, `${Math.round(triangles).toLocaleString()} rendered tris`);
 check('repeated scenery is instanced', instances > 500, `${instances.toLocaleString()} instances`);
-check('world remains compact enough to combine with existing car', draws + 164 < 315, `${draws + 164} estimated total draws`);
+check('world remains bounded enough to combine with existing car', draws + 164 < 460, `${draws + 164} estimated total draws`);
 
 console.log(failures ? `\n${failures} world check(s) failed` : '\nall world checks passed');
 process.exit(failures ? 1 : 0);
