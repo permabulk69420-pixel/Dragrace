@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { createMaterials } from './materials.js';
 import { buildExterior } from './body.js';
 import { buildInterior } from './interior.js';
+import { refineCockpit } from './cockpitRefinement.js';
 import { buildCorner, buildSuspensionLinks } from './wheels.js';
 import { needleAngle } from './gauges.js';
 import { SPEC } from './spec.js';
@@ -51,8 +52,12 @@ export function buildCar(options = {}) {
   const sprung = group('Sprung');
   chassis.add(sprung);
 
-  sprung.add(buildExterior(M, parts));
-  sprung.add(buildInterior(M, parts));
+  const exterior = buildExterior(M, parts);
+  const interior = buildInterior(M, parts);
+  refineCockpit(interior, parts);
+
+  sprung.add(exterior);
+  sprung.add(interior);
   sprung.add(buildSuspensionLinks(M));
 
   // Where the driver's eyes belong. The VR rig is parented here, so the player
