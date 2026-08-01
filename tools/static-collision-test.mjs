@@ -37,7 +37,6 @@ overhead.position.set(0, 8, 0);
 landmarks.add(overhead);
 
 const colliders = collectStaticColliders(root);
-console.log('fixture colliders', JSON.stringify(colliders));
 check('collector uses structural geometry and rejects overhead pieces',
   colliders.length === 2,
   `${colliders.length} colliders`);
@@ -53,7 +52,6 @@ const vehicle = {
 };
 world.reset({ x: -8, z: 0, heading: -Math.PI / 2, y: 0.82 });
 const wallHit = world.resolve(vehicle, 1 / 30, 0.82);
-console.log('wall hit', wallHit, vehicle);
 const forwardAfterHit = new THREE.Vector2(-Math.sin(vehicle.heading), -Math.cos(vehicle.heading));
 check('fast movement is swept into the actual wall', wallHit.collided && wallHit.collider?.source === 'TestMainBlock');
 check('vehicle remains at the contact wall instead of teleporting elsewhere',
@@ -71,7 +69,6 @@ const rotatedVehicle = {
 };
 world.reset({ x: 5, z: 0, heading: -Math.PI / 2, y: 0.82 });
 const rotatedHit = world.resolve(rotatedVehicle, 1 / 30, 0.82);
-console.log('rotated hit', rotatedHit, rotatedVehicle);
 check('oriented building walls collide at their real rotation',
   rotatedHit.collided && rotatedHit.collider?.source === 'TestRotatedBlock');
 
@@ -83,7 +80,6 @@ const clearVehicle = {
 };
 world.reset({ x: -8, z: 20, heading: -Math.PI / 2, y: 0.82 });
 const clearRun = world.resolve(clearVehicle, 1 / 30, 0.82);
-console.log('clear run', clearRun, clearVehicle);
 check('clear space remains driveable', !clearRun.collided && clearVehicle.x === 18);
 
 const elevatedVehicle = {
