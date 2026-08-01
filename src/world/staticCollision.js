@@ -1,17 +1,27 @@
 /**
- * Swept 2D collision against actual scenery geometry.
+ * Swept 2D collision against the actual world geometry.
  *
- * The car simulation exposes a planar pose rather than a rigid body, so this
- * builds a purpose-made three-circle car capsule and sweeps it continuously
- * against static circles and oriented boxes extracted from rendered scenery.
+ * The car simulation is planar rather than a full rigid body, so this module
+ * builds a three-circle car capsule and continuously sweeps it against static
+ * circles and oriented boxes. Structural scenery is extracted from the meshes
+ * that are actually rendered, while roadside barriers, guardrails and tunnel
+ * walls are rebuilt as short world-space box segments at their visible faces.
  */
 import * as THREE from 'three';
+import {
+  BARRIER_RANGES,
+  courseRoute,
+  DRIVEABLE_HALF_WIDTH,
+  GUARDRAIL_RANGES,
+  TUNNEL_RANGE,
+} from './course.js';
 
 const CELL_SIZE = 40;
 const PROBE_RADIUS = 0.78;
 const PROBE_OFFSETS = Object.freeze([-1.35, 0, 1.35]);
 const CONTACT_SKIN = 0.035;
 const EPSILON = 1e-7;
+const BOUNDARY_STEP = 3.0;
 
 const SOLID_INSTANCES = new Set([
   'ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers',
@@ -21,7 +31,8 @@ const SOLID_INSTANCES = new Set([
 ]);
 const SOLID_MESHES = new Set(['ViaductPillars', 'TunnelPortalConcrete']);
 const STRUCTURAL_ROOTS = new Set(['ArchitecturalLandmarks', 'IndustrialLandmarks']);
-const IGNORE_NAME = /(sign|glow|window|light|lamp|bulb|pool|reflector|mark|stripe|arrow|wire|fence|road|asphalt|shoulder|ground|water|mountain|sky|cloud|star|moon|skid|puddle|manhole|drain|joint|gantry|scoreboard|beacon|mast|antenna|trim|band|fin|mullion|canopy|awning|plaza|forecourt|courtyard|floor|slab|ramp|cable|warning)/i;
+const STRUCTURAL_NAME = /(building|tower|warehouse|mainblock|wall|pillar|column|container|tank|smokestack|refinery|works|garage|hotel|loft|podium|factory|plant|terminal|depot|silo|support|concrete|core)/i;
+const IGNORE_NAME = /(sign|glow|window|light|lamp|bulb|pool|reflector|mark|stripe|arrow|wire|fence|road|asphalt|shoulder|ground|water|mountain|sky|cloud|star|moon|skid|puddle|manhole|drain|joint|gantry|scoreboard|beacon|mast|antenna|trim|band|fin|mullion|canopy|awning|plaza|forecourt|courtyard|floor|slab|ramp|cable|warning|roof|ledge|rail)/i;
 
 const _matrix = new THREE.Matrix4();
 const _instance = new THREE.Matrix4();
@@ -44,7 +55,8 @@ function shouldCollect(object, root) {
   if (!object.visible || !object.isMesh || !object.geometry) return false;
   if (object.isInstancedMesh && SOLID_INSTANCES.has(object.name)) return true;
   if (SOLID_MESHES.has(object.name)) return true;
-  return hasStructuralAncestor(object, root) && !IGNORE_NAME.test(object.name);
+  if (IGNORE_NAME.test(object.name)) return false;
+  return hasStructuralAncestor(object, root) || STRUCTURAL_NAME.test(object.name);
 }
 
 function verticalBounds(box, matrix) {
@@ -76,7 +88,7 @@ function makeCollider(object, matrix, instanceIndex = null) {
   const vertical = verticalBounds(box, matrix);
   const height = vertical.maxY - vertical.minY;
 
-  // Ignore road decals, rooftops and overhead structures that cannot touch a car.
+  // Reject decals, roofs and overhead pieces that cannot overlap the car body.
   if (vertical.maxY < 0.22 || vertical.minY > 2.25 || height < 0.55) return null;
   if (halfX < 0.18 || halfZ < 0.18 || halfX * halfZ < 0.12) return null;
 
@@ -84,6 +96,7 @@ function makeCollider(object, matrix, instanceIndex = null) {
   const base = {
     id: instanceIndex == null ? object.name : `${object.name}:${instanceIndex}`,
     source: object.name,
+    kind: 'scenery',
     x: centre.x,
     z: centre.z,
     minY: vertical.minY,
@@ -113,6 +126,90 @@ export function collectStaticColliders(root) {
       const collider = makeCollider(object, object.matrixWorld);
       if (collider) colliders.push(collider);
     }
+  });
+  return colliders;
+}
+
+function segmentCollider(route, distanceA, distanceB, side, offset, thickness, height, kind, id) {
+  const a = route.pointAt(distanceA, side * offset, height * 0.5);
+  const b = route.pointAt(distanceB, side * offset, height * 0.5);
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.02) return null;
+  return {
+    id,
+    source: kind,
+    kind,
+    type: 'box',
+    x: (a.x + b.x) * 0.5,
+    z: (a.z + b.z) * 0.5,
+    halfX: thickness * 0.5,
+    halfZ: length * 0.5 + 0.10,
+    yaw: Math.atan2(dx, dz),
+    minY: Math.min(a.y, b.y) - height * 0.5 - 0.15,
+    maxY: Math.max(a.y, b.y) + height * 0.5 + 0.15,
+  };
+}
+
+function addBoundaryRange(colliders, route, range, {
+  kind,
+  offset,
+  thickness,
+  height,
+}) {
+  let start = range[0] * route.length;
+  let end = range[1] * route.length;
+  if (end < start) end += route.length;
+  let segmentIndex = 0;
+  for (let d = start; d < end - EPSILON; d += BOUNDARY_STEP) {
+    const next = Math.min(end, d + BOUNDARY_STEP);
+    for (const side of [-1, 1]) {
+      const collider = segmentCollider(
+        route,
+        d,
+        next,
+        side,
+        offset,
+        thickness,
+        height,
+        kind,
+        `${kind}:${range[0]}-${range[1]}:${side}:${segmentIndex}`,
+      );
+      if (collider) colliders.push(collider);
+    }
+    segmentIndex++;
+  }
+}
+
+/**
+ * Build world-space collision boxes at the same locations as the visible
+ * concrete barriers, steel guardrails and tunnel walls. These are real short
+ * segments, not a lateral clamp to the route centreline.
+ */
+export function collectCourseBoundaryColliders(route = courseRoute) {
+  const colliders = [];
+  for (const range of BARRIER_RANGES) {
+    addBoundaryRange(colliders, route, range, {
+      kind: 'barrier',
+      offset: DRIVEABLE_HALF_WIDTH + 0.52,
+      thickness: 0.38,
+      height: 1.0,
+    });
+  }
+  for (const range of GUARDRAIL_RANGES) {
+    addBoundaryRange(colliders, route, range, {
+      kind: 'guardrail',
+      offset: DRIVEABLE_HALF_WIDTH + 0.63,
+      thickness: 0.26,
+      height: 1.05,
+    });
+  }
+  addBoundaryRange(colliders, route, TUNNEL_RANGE, {
+    kind: 'tunnel',
+    offset: 8.74,
+    thickness: 0.40,
+    height: 4.8,
   });
   return colliders;
 }
@@ -368,5 +465,13 @@ export class StaticCollisionWorld {
 }
 
 export function buildStaticCollisionWorld(root, options = {}) {
-  return new StaticCollisionWorld(collectStaticColliders(root), options);
+  const {
+    includeCourseBoundaries = true,
+    route = courseRoute,
+  } = options;
+  const colliders = [
+    ...collectStaticColliders(root),
+    ...(includeCourseBoundaries ? collectCourseBoundaryColliders(route) : []),
+  ];
+  return new StaticCollisionWorld(colliders, options);
 }
