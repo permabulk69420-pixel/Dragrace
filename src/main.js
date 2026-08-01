@@ -68,9 +68,6 @@ const lights = setupEnvironment(renderer, scene);
 step(40, 'Building Midnight Circuit…');
 const track = buildTrack();
 scene.add(track.object);
-// Build a spatially indexed collision world from the actual rendered building,
-// warehouse, container, landmark and support geometry. This is separate from
-// the spline-following barrier solver because these are real world objects.
 const staticCollisions = buildStaticCollisionWorld(track.object);
 
 step(62, 'Building the car…');
@@ -81,9 +78,6 @@ scene.add(car.root);
 /* Player rig                                                                  */
 /* -------------------------------------------------------------------------- */
 
-// The rig hangs off the driver's eye point inside the cockpit, so the player
-// rides with the car while the headset is still free to move them around
-// inside it. Recentring shifts the rig so the headset lands on the eye point.
 const rig = new THREE.Group();
 rig.name = 'PlayerRig';
 car.parts.driverAnchor.add(rig);
@@ -91,7 +85,6 @@ car.parts.driverAnchor.add(rig);
 let recenterFrames = 0;
 function recenter() {
   if (!renderer.xr.isPresenting) return;
-  // camera.position is the head pose expressed in rig space.
   const head = camera.position.clone();
   const yaw = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ').y;
   rig.rotation.y -= yaw;
@@ -102,8 +95,6 @@ function recenter() {
 step(74, 'Wiring up the controls…');
 const controls = new Controls(renderer, rig);
 const audio = new EngineAudio();
-// Only compatibility change required by the world: do not clamp global X to
-// the original straight drag lane.  The car model itself is untouched.
 const vehicle = new Vehicle({ enforceStripBounds: false });
 const race = new CircuitRace(track.route);
 
@@ -216,6 +207,7 @@ function resetCar() {
   race.remember();
   vehicle.reset(track.spawn.position.z, track.spawn.position.x);
   vehicle.heading = track.spawn.heading;
+  vehicle.syncPlanarVelocity();
   track.resetCollisions();
   staticCollisions.reset({
     x: track.spawn.position.x,
@@ -274,10 +266,22 @@ renderer.setAnimationLoop(() => {
   vehicle.lineLock = controls.lineLock;
 
   // --- simulate ------------------------------------------------------------
-  vehicle.update(dt);
   const routeHint = race.currentInfo?.distance ?? race.lastRouteDistance;
-  const provisionalRoad = track.surfaceAt(vehicle.x, vehicle.z, routeHint);
-  const sceneryCollision = staticCollisions.resolve(vehicle, dt, provisionalRoad.height + 0.82);
+  let sceneryCollision = { collided: false, emit: false, impact: 0, collider: null };
+
+  vehicle.update(dt, (movingVehicle, previousPose, stepDt) => {
+    const substepRoad = track.surfaceAt(movingVehicle.x, movingVehicle.z, routeHint);
+    const hit = staticCollisions.resolve(
+      movingVehicle,
+      stepDt,
+      substepRoad.height + 0.82,
+      previousPose,
+    );
+    if (hit.emit || hit.impact > sceneryCollision.impact) sceneryCollision = hit;
+  });
+
+  // This now returns road metadata only for the live vehicle. StaticCollisionWorld
+  // is the sole authority for visible walls and scenery contacts.
   const collision = track.resolveVehicle(vehicle, routeHint, dt);
   if (sceneryCollision.emit) {
     const volume = Math.min(0.42, 0.08 + sceneryCollision.impact * 0.012);
@@ -289,14 +293,14 @@ renderer.setAnimationLoop(() => {
   const road = collision.road ?? race.currentInfo ?? track.surfaceAt(vehicle.x, vehicle.z);
   const supported = Math.abs(road.lateral) < track.driveableHalfWidth + 3.0;
   if (!road.onDriveableSurface) {
-    // Grass, gravel and dock aprons scrub speed in the preview integration.
     vehicle.speed *= Math.exp(-dt * 0.48);
+    vehicle.lateralSpeed *= Math.exp(-dt * 0.65);
+    vehicle.syncPlanarVelocity();
   }
   car.root.position.set(vehicle.x, supported ? road.height + 0.012 : 0, vehicle.z);
   car.root.rotation.set(supported ? road.pitch : 0, vehicle.heading, supported ? road.bank : 0, 'YXZ');
   car.applyState(vehicle.state, dt);
 
-  // Keep the shadow frustum on the car.
   lights.sun.position.set(vehicle.x + 26, car.root.position.y + 24, vehicle.z + 18);
   lights.sun.target.position.set(vehicle.x, car.root.position.y, vehicle.z - 6);
   lights.sun.target.updateMatrixWorld();
@@ -333,5 +337,4 @@ function updateHud() {
   document.getElementById('hud-info').innerHTML = rows.join('<br>');
 }
 
-// Expose a little of the internals for tinkering from the console.
 Object.assign(window, { THREE, scene, renderer, car, vehicle, race, track, staticCollisions, camera });
