@@ -43,6 +43,7 @@ fs.mkdirSync(dist, { recursive: true });
 run('vendor.mjs');
 run('smoke-test.mjs');
 run('world-smoke-test.mjs');
+run('static-collision-test.mjs');
 
 // Keep the ordinary source path for old tabs that are still holding a cached
 // index.html, but make the newly generated page load from a commit-specific
