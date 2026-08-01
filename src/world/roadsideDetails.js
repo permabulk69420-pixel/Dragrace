@@ -291,37 +291,7 @@ function buildFencesAndUtilities(root, route, materials) {
   root.add(wires);
 }
 
-function buildBoulevardLife(root, route, materials) {
-  const random = seededRandom(0xb011e7a);
-  const trunkGeo = new THREE.CylinderGeometry(0.16, 0.24, 1, 8, 1);
-  trunkGeo.translate(0, 0.5, 0);
-  const crownGeo = new THREE.IcosahedronGeometry(1, 2);
-  const trunks = instance(trunkGeo, materials.treeTrunk, 80, 'BoulevardTreeTrunks');
-  const crowns = instance(crownGeo, materials.foliage, 80, 'BoulevardTreeCrowns');
-  let treeCount = 0;
-  const treeRanges = [[0.885, 0.995], [0.0, 0.032]];
-  for (let d = 0; d < route.length; d += 21.5) {
-    if (!rangeContains(d / route.length, treeRanges)) continue;
-    for (const side of [-1, 1]) {
-      const base = route.pointAt(d, side * 11.9, 0.18);
-      const height = 3.5 + random() * 1.6;
-      trunks.setMatrixAt(treeCount, new THREE.Matrix4().compose(
-        base,
-        new THREE.Quaternion(),
-        new THREE.Vector3(1, height, 1)
-      ));
-      crowns.setMatrixAt(treeCount, new THREE.Matrix4().compose(
-        base.clone().add(new THREE.Vector3(0, height + 1.25, 0)),
-        new THREE.Quaternion().setFromAxisAngle(Y_AXIS, random() * Math.PI),
-        new THREE.Vector3(1.55 + random() * 0.55, 1.45 + random() * 0.65, 1.55 + random() * 0.55)
-      ));
-      treeCount++;
-    }
-  }
-  finishInstances(trunks, treeCount);
-  finishInstances(crowns, treeCount);
-  root.add(trunks, crowns);
-
+function buildBoulevardFurniture(root, route, materials) {
   const furnitureGeo = new THREE.BoxGeometry(1, 1, 1);
   const bins = instance(furnitureGeo, materials.darkMetal, 42, 'StreetBins');
   const bollardGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.82, 10, 1);
@@ -474,7 +444,7 @@ export function buildRoadsideDetails(route, materials) {
   buildRoadWear(root, route, materials);
   buildTunnelDetails(root, route, materials);
   buildFencesAndUtilities(root, route, materials);
-  buildBoulevardLife(root, route, materials);
+  buildBoulevardFurniture(root, route, materials);
   buildUnderDeckDetails(root, route, materials);
   const impacts = buildImpactEffects(root);
 

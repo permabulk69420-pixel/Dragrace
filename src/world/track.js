@@ -11,6 +11,7 @@ import {
   BARRIER_RANGES,
   courseRoute,
   DRIVEABLE_HALF_WIDTH,
+  GUARDRAIL_RANGES,
   ROAD_HALF_WIDTH,
   SHOULDER_WIDTH,
   TUNNEL_RANGE,
@@ -261,6 +262,46 @@ function buildSafetyAndTunnel(root, route, materials) {
       include: protectedRoad,
     }), side < 0 ? materials.barrierStripe : materials.laneYellow, `BarrierStripe_${side}`, 5));
   }
+
+  // The remaining open-road spans use proper steel W-beam-style containment.
+  // These visible ranges are also consumed by CourseCollision, so there are no
+  // invisible walls and no unprotected holes in the lap boundary.
+  const guardrailRoad = inRanges(GUARDRAIL_RANGES);
+  for (const side of [-1, 1]) {
+    for (const [index, band] of [[0, 0.38], [1, 0.70]]) {
+      root.add(roadMesh(verticalRibbonGeometry(route, {
+        offset: side * (DRIVEABLE_HALF_WIDTH + 0.63),
+        bottom: band,
+        height: index ? 0.17 : 0.22,
+        include: guardrailRoad,
+        name: `GuardrailBeam_${side}_${index}`,
+      }), materials.guardrail, `GuardrailBeam_${side}_${index}`, 4));
+    }
+  }
+
+  const postGeometry = new THREE.BoxGeometry(0.16, 1.02, 0.20);
+  postGeometry.translate(0, 0.51, 0);
+  const postCapacity = Math.ceil(route.length / 3.8) * 2;
+  const posts = new THREE.InstancedMesh(postGeometry, materials.guardrailPost, postCapacity);
+  posts.name = 'GuardrailPosts';
+  posts.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  const matrix = new THREE.Matrix4();
+  const quaternion = new THREE.Quaternion();
+  let postCount = 0;
+  for (let distance = 0; distance < route.length; distance += 3.8) {
+    const u = distance / route.length;
+    if (!guardrailRoad(u)) continue;
+    const frame = route.atDistance(distance);
+    quaternion.setFromEuler(new THREE.Euler(frame.pitch, frame.heading, frame.bank, 'YXZ'));
+    for (const side of [-1, 1]) {
+      const position = route.pointAt(distance, side * (DRIVEABLE_HALF_WIDTH + 0.68), 0.04);
+      matrix.compose(position, quaternion, new THREE.Vector3(1, 1, 1));
+      posts.setMatrixAt(postCount++, matrix);
+    }
+  }
+  posts.count = postCount;
+  posts.instanceMatrix.needsUpdate = true;
+  root.add(posts);
 
   const tunnel = roadMesh(tunnelGeometry(route, {
     start: TUNNEL_RANGE[0],

@@ -104,13 +104,13 @@ export function setupEnvironment(renderer, scene) {
   const envMap = pmrem.fromEquirectangular(sky).texture;
   scene.background = sky;
   scene.environment = envMap;
-  scene.environmentIntensity = 0.72;
-  scene.fog = new THREE.FogExp2(0x08111b, 0.00105);
+  scene.environmentIntensity = 0.88;
+  scene.fog = new THREE.FogExp2(0x09131e, 0.00078);
   pmrem.dispose();
 
   // The moon remains the one shadow-casting world light.  Its compact shadow
   // frustum follows the car in main.js, keeping resolution useful on Quest.
-  const moon = new THREE.DirectionalLight(0xa8caff, 2.25);
+  const moon = new THREE.DirectionalLight(0xa8caff, 2.65);
   moon.name = 'MoonKey';
   moon.position.set(34, 42, 26);
   moon.castShadow = true;
@@ -125,16 +125,16 @@ export function setupEnvironment(renderer, scene) {
   moon.shadow.normalBias = 0.035;
   scene.add(moon, moon.target);
 
-  const hemisphere = new THREE.HemisphereLight(0x7098d0, 0x22180f, 0.62);
+  const hemisphere = new THREE.HemisphereLight(0x779dd3, 0x2a1d15, 0.86);
   hemisphere.name = 'NightHemisphere';
   scene.add(hemisphere);
 
-  const cityBounce = new THREE.DirectionalLight(0xff7f42, 0.42);
+  const cityBounce = new THREE.DirectionalLight(0xff7f42, 0.54);
   cityBounce.name = 'CityBounce';
   cityBounce.position.set(-70, 18, -90);
   scene.add(cityBounce);
 
-  const skylineFill = new THREE.DirectionalLight(0x675cff, 0.28);
+  const skylineFill = new THREE.DirectionalLight(0x675cff, 0.36);
   skylineFill.name = 'SkylineFill';
   skylineFill.position.set(110, 30, 120);
   scene.add(skylineFill);
