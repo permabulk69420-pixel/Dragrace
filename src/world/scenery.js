@@ -37,6 +37,98 @@ function setCount(object, count) {
   if (object.instanceColor) object.instanceColor.needsUpdate = true;
 }
 
+function normaliseUnitGeometry(geometry) {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+  geometry.translate(-centre.x, -box.min.y, -centre.z);
+  geometry.scale(1 / size.x, 1 / size.y, 1 / size.z);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function extrudedFootprint(points, { bevel = 0.025 } = {}) {
+  const shape = new THREE.Shape();
+  points.forEach(([x, y], index) => index ? shape.lineTo(x, y) : shape.moveTo(x, y));
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 1,
+    steps: 1,
+    curveSegments: 1,
+    bevelEnabled: bevel > 0,
+    bevelSegments: 1,
+    bevelSize: bevel,
+    bevelThickness: bevel,
+  });
+  // Shape XY becomes footprint XZ; extrusion depth becomes building height.
+  geometry.rotateX(-Math.PI / 2);
+  return normaliseUnitGeometry(geometry);
+}
+
+function chamferedTowerGeometry() {
+  return extrudedFootprint([
+    [-0.40, -0.50], [0.40, -0.50], [0.50, -0.40], [0.50, 0.40],
+    [0.40, 0.50], [-0.40, 0.50], [-0.50, 0.40], [-0.50, -0.40],
+  ], { bevel: 0.035 });
+}
+
+function setbackTowerGeometry() {
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const appendTier = (width, height, depth, centreY, vScale, vOffset) => {
+    const source = new THREE.BoxGeometry(width, height, depth).toNonIndexed();
+    source.translate(0, centreY, 0);
+    positions.push(...source.getAttribute('position').array);
+    normals.push(...source.getAttribute('normal').array);
+    const sourceUvs = source.getAttribute('uv').array;
+    for (let i = 0; i < sourceUvs.length; i += 2) {
+      uvs.push(sourceUvs[i], sourceUvs[i + 1] * vScale + vOffset);
+    }
+    source.dispose();
+  };
+  appendTier(1, 0.62, 1, 0.31, 0.62, 0);
+  appendTier(0.72, 0.38, 0.80, 0.81, 0.38, 0.62);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function gabledWarehouseGeometry() {
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.5, 0);
+  shape.lineTo(0.5, 0);
+  shape.lineTo(0.5, 0.72);
+  shape.lineTo(0, 1);
+  shape.lineTo(-0.5, 0.72);
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 1,
+    steps: 1,
+    bevelEnabled: false,
+    curveSegments: 1,
+  });
+  geometry.translate(0, 0, -0.5);
+  return normaliseUnitGeometry(geometry);
+}
+
+function footprintClearance(route, x, z, width, depth, margin = 4.25) {
+  const radius = Math.hypot(width, depth) * 0.5;
+  const distanceToRoad = route.nearest(x, z).distanceToCentre;
+  const clearGap = distanceToRoad - radius;
+  return {
+    ok: clearGap >= DRIVEABLE_HALF_WIDTH + margin,
+    radius,
+    clearGap,
+    requiredGap: DRIVEABLE_HALF_WIDTH + margin,
+  };
+}
+
 function buildGround(root, materials) {
   const ground = mesh(new THREE.PlaneGeometry(1900, 1900, 1, 1), materials.ground, 'WorldGround', { receive: true });
   ground.rotation.x = -Math.PI / 2;
@@ -71,70 +163,181 @@ function buildGround(root, materials) {
 
 function buildCity(root, route, materials) {
   const random = seededRandom(0x00c17e5);
-  const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
-  buildingGeo.translate(0, 0.5, 0);
+  const group = new THREE.Group();
+  group.name = 'CityBuildings';
+  const max = 190;
+  const chamfered = instance(chamferedTowerGeometry(), materials.buildingGlass, max, 'ChamferedTowers', { receive: true });
+  const setback = instance(setbackTowerGeometry(), materials.buildingConcrete, max, 'SetbackTowers', { receive: true });
+  const roundGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1, false);
+  roundGeo.translate(0, 0.5, 0);
+  const round = instance(roundGeo, materials.buildingBrick, max, 'RoundCornerTowers', { receive: true });
+
   const roofGeo = new THREE.BoxGeometry(1, 1, 1);
   roofGeo.translate(0, 0.5, 0);
-  const max = 260;
-  const buildings = instance(buildingGeo, materials.building, max, 'CityBuildings', { receive: true });
   const roofs = instance(roofGeo, materials.roof, max, 'RooftopUnits');
+  const podiums = instance(roofGeo, materials.buildingPodium, max, 'BuildingPodiums', { receive: true });
+  const ledgeGeo = new THREE.BoxGeometry(1, 1, 1);
+  const ledges = instance(ledgeGeo, materials.buildingTrim, max * 2, 'BuildingFloorLedges');
+  const antennaGeo = new THREE.CylinderGeometry(0.055, 0.075, 1, 8, 1);
+  antennaGeo.translate(0, 0.5, 0);
+  const antennas = instance(antennaGeo, materials.metal, max, 'BuildingAntennas');
+  const beaconGeo = new THREE.SphereGeometry(0.12, 10, 7);
+  const beacons = instance(beaconGeo, materials.buildingBeacon, max, 'BuildingRoofBeacons');
+
   const districts = [
-    { minX: 120, maxX: 520, minZ: -215, maxZ: 410, count: 105, minH: 13, maxH: 72 },
-    { minX: -170, maxX: 245, minZ: 245, maxZ: 570, count: 76, minH: 10, maxH: 46 },
-    { minX: -610, maxX: -315, minZ: -280, maxZ: 300, count: 42, minH: 9, maxH: 34 },
-    { minX: -70, maxX: 390, minZ: -455, maxZ: -250, count: 28, minH: 8, maxH: 24 },
+    { minX: 120, maxX: 520, minZ: -215, maxZ: 410, count: 72, minH: 15, maxH: 74 },
+    { minX: -170, maxX: 245, minZ: 245, maxZ: 570, count: 52, minH: 11, maxH: 48 },
+    { minX: -610, maxX: -315, minZ: -280, maxZ: 300, count: 32, minH: 10, maxH: 36 },
+    { minX: -70, maxX: 390, minZ: -455, maxZ: -250, count: 22, minH: 9, maxH: 26 },
   ];
 
-  let used = 0;
+  const buildingMeshes = [chamfered, setback, round];
+  const buildingCounts = [0, 0, 0];
+  const footprints = [];
+  let roofCount = 0;
+  let podiumCount = 0;
+  let ledgeCount = 0;
+  let antennaCount = 0;
+  let beaconCount = 0;
+  let total = 0;
+
   for (const district of districts) {
     let accepted = 0;
-    for (let tries = 0; tries < district.count * 12 && accepted < district.count && used < max; tries++) {
+    for (let tries = 0; tries < district.count * 36 && accepted < district.count && total < max; tries++) {
       const x = THREE.MathUtils.lerp(district.minX, district.maxX, random());
       const z = THREE.MathUtils.lerp(district.minZ, district.maxZ, random());
-      const nearest = route.nearest(x, z);
-      if (nearest.distanceToCentre < 27 + random() * 10) continue;
       const width = 10 + random() * 23;
       const depth = 10 + random() * 24;
       const height = THREE.MathUtils.lerp(district.minH, district.maxH, Math.pow(random(), 1.55));
+      // Audit the widest architectural piece (the podium), not just the tower
+      // shaft, so ledges and base trim cannot sneak past the road check.
+      const clearance = footprintClearance(route, x, z, width * 1.12, depth * 1.12);
+      if (!clearance.ok) continue;
       const yaw = Math.round(random() * 2) * Math.PI / 2;
-      buildings.setMatrixAt(used, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(width, height, depth), yaw));
-      const colour = new THREE.Color().setHSL(0.56 + random() * 0.08, 0.08 + random() * 0.15, 0.45 + random() * 0.28);
-      buildings.setColorAt(used, colour);
+
+      const styleRoll = random();
+      const style = height > 38 && styleRoll > 0.61 ? 2 : styleRoll > 0.46 ? 1 : 0;
+      const styleIndex = buildingCounts[style]++;
+      const building = buildingMeshes[style];
+      building.setMatrixAt(styleIndex, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(width, height, depth), yaw));
+      const colour = style === 0
+        ? new THREE.Color().setHSL(0.57 + random() * 0.035, 0.12 + random() * 0.12, 0.62 + random() * 0.18)
+        : style === 1
+          ? new THREE.Color().setHSL(0.08 + random() * 0.05, 0.035 + random() * 0.06, 0.62 + random() * 0.17)
+          : new THREE.Color().setHSL(0.025 + random() * 0.025, 0.13 + random() * 0.10, 0.57 + random() * 0.16);
+      building.setColorAt(styleIndex, colour);
+
+      const base = new THREE.Vector3(x, 0, z);
+      if (random() > 0.28) {
+        podiums.setMatrixAt(podiumCount++, compose(
+          base,
+          new THREE.Vector3(width * 1.10, 1.2 + random() * 1.8, depth * 1.10),
+          yaw
+        ));
+      }
+
+      const ledgeLevels = style === 2 ? 0 : height > 31 ? 2 : 1;
+      for (let level = 0; level < ledgeLevels; level++) {
+        const y = height * (ledgeLevels === 1 ? 0.68 : 0.38 + level * 0.34);
+        ledges.setMatrixAt(ledgeCount++, compose(
+          new THREE.Vector3(x, y, z),
+          new THREE.Vector3(width * 1.035, 0.16, depth * 1.035),
+          yaw
+        ));
+      }
 
       const unitW = width * (0.18 + random() * 0.22);
       const unitD = depth * (0.18 + random() * 0.22);
-      roofs.setMatrixAt(used, compose(
+      const unitH = 1.1 + random() * 2.4;
+      roofs.setMatrixAt(roofCount++, compose(
         new THREE.Vector3(x + (random() - 0.5) * width * 0.4, height, z + (random() - 0.5) * depth * 0.4),
-        new THREE.Vector3(unitW, 1.1 + random() * 2.4, unitD),
+        new THREE.Vector3(unitW, unitH, unitD),
         yaw
       ));
-      used++;
+
+      if (height > 28 && random() > 0.34) {
+        const antennaHeight = 2.8 + random() * 6.5;
+        const antennaBase = new THREE.Vector3(x, height + unitH, z);
+        antennas.setMatrixAt(antennaCount++, compose(
+          antennaBase,
+          new THREE.Vector3(1, antennaHeight, 1)
+        ));
+        beacons.setMatrixAt(beaconCount++, compose(
+          antennaBase.clone().add(new THREE.Vector3(0, antennaHeight + 0.04, 0)),
+          new THREE.Vector3(1, 1, 1)
+        ));
+      }
+
+      footprints.push({
+        kind: 'city-building',
+        x,
+        z,
+        radius: clearance.radius,
+        requiredGap: clearance.requiredGap,
+      });
+      total++;
       accepted++;
     }
   }
-  setCount(buildings, used);
-  setCount(roofs, used);
-  root.add(buildings, roofs);
+
+  buildingMeshes.forEach((building, index) => setCount(building, buildingCounts[index]));
+  setCount(roofs, roofCount);
+  setCount(podiums, podiumCount);
+  setCount(ledges, ledgeCount);
+  setCount(antennas, antennaCount);
+  setCount(beacons, beaconCount);
+  group.add(...buildingMeshes, podiums, ledges, roofs, antennas, beacons);
+  group.userData.roadClearanceFootprints = footprints;
+  root.add(group);
+  return footprints;
 }
 
 function buildIndustrialDistrict(root, route, materials) {
   const random = seededRandom(0x1ad057a1);
-  const warehouseGeo = new THREE.BoxGeometry(1, 1, 1);
-  warehouseGeo.translate(0, 0.5, 0);
-  const warehouses = instance(warehouseGeo, materials.warehouse, 40, 'Warehouses', { receive: true });
+  const warehouses = instance(gabledWarehouseGeometry(), materials.warehouse, 32, 'GabledWarehouses', { receive: true });
+  const doorGeo = new THREE.BoxGeometry(1, 1, 1);
+  const loadingDoors = instance(doorGeo, materials.warehouseDoor, 32, 'WarehouseLoadingDoors');
+  const ventGeo = new THREE.CylinderGeometry(0.24, 0.31, 1, 10, 1);
+  ventGeo.translate(0, 0.5, 0);
+  const roofVents = instance(ventGeo, materials.metal, 32, 'WarehouseRoofVents');
+  const footprints = [];
   let warehouseCount = 0;
-  for (let tries = 0; tries < 300 && warehouseCount < 34; tries++) {
+  for (let tries = 0; tries < 900 && warehouseCount < 28; tries++) {
     const x = -560 + random() * 660;
     const z = -560 + random() * 265;
-    if (route.nearest(x, z).distanceToCentre < 31) continue;
     const w = 22 + random() * 38;
     const d = 28 + random() * 55;
     const h = 7 + random() * 8;
+    const clearance = footprintClearance(route, x, z, w, d, 5.0);
+    if (!clearance.ok) continue;
     const yaw = Math.round(random()) * Math.PI / 2;
-    warehouses.setMatrixAt(warehouseCount++, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(w, h, d), yaw));
+    const q = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, yaw);
+    warehouses.setMatrixAt(warehouseCount, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(w, h, d), yaw));
+
+    const frontOffset = new THREE.Vector3(0, 0, d * 0.505).applyQuaternion(q);
+    loadingDoors.setMatrixAt(warehouseCount, new THREE.Matrix4().compose(
+      new THREE.Vector3(x, h * 0.34, z).add(frontOffset),
+      q,
+      new THREE.Vector3(w * 0.48, h * 0.54, 0.16)
+    ));
+    const ventOffset = new THREE.Vector3((random() - 0.5) * w * 0.35, 0, (random() - 0.5) * d * 0.35).applyQuaternion(q);
+    roofVents.setMatrixAt(warehouseCount, compose(
+      new THREE.Vector3(x, h + 0.1, z).add(ventOffset),
+      new THREE.Vector3(1, 1.2 + random() * 1.3, 1)
+    ));
+    footprints.push({
+      kind: 'warehouse',
+      x,
+      z,
+      radius: clearance.radius,
+      requiredGap: clearance.requiredGap,
+    });
+    warehouseCount++;
   }
   setCount(warehouses, warehouseCount);
-  root.add(warehouses);
+  setCount(loadingDoors, warehouseCount);
+  setCount(roofVents, warehouseCount);
+  root.add(warehouses, loadingDoors, roofVents);
 
   const containerGeo = new THREE.BoxGeometry(2.44, 2.59, 6.06);
   containerGeo.translate(0, 1.295, 0);
@@ -168,14 +371,20 @@ function buildIndustrialDistrict(root, route, materials) {
   const tankGeo = new THREE.CylinderGeometry(1, 1, 1, 14, 1);
   tankGeo.translate(0, 0.5, 0);
   const tanks = instance(tankGeo, materials.metal, 18, 'StorageTanks', { receive: true });
+  let tankCount = 0;
   for (let i = 0; i < 18; i++) {
     const row = Math.floor(i / 6);
     const col = i % 6;
     const r = 5 + random() * 3;
     const h = 10 + random() * 14;
-    tanks.setMatrixAt(i, compose(new THREE.Vector3(-590 + col * 23, 0, -465 + row * 29), new THREE.Vector3(r, h, r)));
+    const x = -590 + col * 23;
+    const z = -465 + row * 29;
+    const clearance = footprintClearance(route, x, z, r * 2, r * 2, 3.5);
+    if (!clearance.ok) continue;
+    tanks.setMatrixAt(tankCount++, compose(new THREE.Vector3(x, 0, z), new THREE.Vector3(r, h, r)));
+    footprints.push({ kind: 'storage-tank', x, z, radius: clearance.radius, requiredGap: clearance.requiredGap });
   }
-  setCount(tanks, 18);
+  setCount(tanks, tankCount);
   root.add(tanks);
 
   const stackGeo = new THREE.CylinderGeometry(0.72, 1.05, 1, 14, 1);
@@ -189,19 +398,30 @@ function buildIndustrialDistrict(root, route, materials) {
   });
   const beaconGeo = new THREE.SphereGeometry(0.16, 12, 8);
   const beacons = instance(beaconGeo, beaconMaterial, 12, 'IndustrialWarningBeacons');
+  let stackCount = 0;
   for (let i = 0; i < 12; i++) {
     const row = Math.floor(i / 4);
     const col = i % 4;
     const height = 17 + random() * 23;
     const position = new THREE.Vector3(-625 + col * 44 + row * 8, 0, -385 + row * 38);
-    stacks.setMatrixAt(i, compose(position, new THREE.Vector3(1, height, 1)));
-    beacons.setMatrixAt(i, compose(
+    const clearance = footprintClearance(route, position.x, position.z, 2.1, 2.1, 3.5);
+    if (!clearance.ok) continue;
+    stacks.setMatrixAt(stackCount, compose(position, new THREE.Vector3(1, height, 1)));
+    beacons.setMatrixAt(stackCount, compose(
       position.clone().add(new THREE.Vector3(0, height + 0.15, 0)),
       new THREE.Vector3(1, 1, 1)
     ));
+    footprints.push({
+      kind: 'smokestack',
+      x: position.x,
+      z: position.z,
+      radius: clearance.radius,
+      requiredGap: clearance.requiredGap,
+    });
+    stackCount++;
   }
-  setCount(stacks, 12);
-  setCount(beacons, 12);
+  setCount(stacks, stackCount);
+  setCount(beacons, stackCount);
   root.add(stacks, beacons);
 
   const railMat = new THREE.MeshStandardMaterial({ color: 0x8a8f94, metalness: 0.9, roughness: 0.38 });
@@ -214,6 +434,7 @@ function buildIndustrialDistrict(root, route, materials) {
   for (const [x, z, flip] of [[-510, -585, 0], [-285, -605, 0.15], [25, -555, -0.2]]) {
     root.add(makeCrane(x, z, flip, materials));
   }
+  return footprints;
 }
 
 function makeCrane(x, z, yaw, materials) {
@@ -294,10 +515,14 @@ function buildStreetLights(root, route, materials) {
   const poolGeo = new THREE.CircleGeometry(1, 18);
   const poles = instance(poleGeo, materials.darkMetal, count, 'StreetLightPoles');
   const arms = instance(headGeo, materials.darkMetal, count, 'StreetLightArms');
-  const bulbs = instance(headGeo, materials.lamp, count, 'StreetLightBulbs');
-  const pools = instance(poolGeo, materials.sodiumGlow, count, 'StreetLightPools');
+  const warmBulbs = instance(headGeo, materials.lamp, count, 'StreetLightBulbsWarm');
+  const coolBulbs = instance(headGeo, materials.coolLamp, count, 'StreetLightBulbsCool');
+  const warmPools = instance(poolGeo, materials.sodiumGlow, count, 'StreetLightPoolsWarm');
+  const coolPools = instance(poolGeo, materials.cyanGlow, count, 'StreetLightPoolsCool');
   const lampPositions = [];
   let used = 0;
+  let warmCount = 0;
+  let coolCount = 0;
 
   const poolQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
   for (let d = 20; d < route.length; d += spacing) {
@@ -313,19 +538,31 @@ function buildStreetLights(root, route, materials) {
       const armCentre = base.clone().add(new THREE.Vector3(0, height - 0.28, 0)).addScaledVector(flatRight, -side * 0.72);
       arms.setMatrixAt(used, compose(armCentre, new THREE.Vector3(1.55, 0.09, 0.10), frame.heading));
       const bulb = base.clone().add(new THREE.Vector3(0, height - 0.42, 0)).addScaledVector(flatRight, -side * 1.38);
-      bulbs.setMatrixAt(used, compose(bulb, new THREE.Vector3(0.42, 0.13, 0.28), frame.heading));
       const pool = route.pointAt(d, side * (ROAD_HALF_WIDTH - 1.65), 0.035);
-      pools.setMatrixAt(used, compose(pool, new THREE.Vector3(7.2, 7.2, 7.2), 0, poolQuaternion));
-      lampPositions.push({ position: bulb, colour: 0xff9e45, intensity: 145 });
+      const urban = (u > 0.485 && u < 0.695) || u > 0.875 || u < 0.035;
+      const cool = urban && (Math.floor(d / spacing) + (side > 0 ? 1 : 0)) % 3 === 0;
+      const bulbMatrix = compose(bulb, new THREE.Vector3(0.42, 0.13, 0.28), frame.heading);
+      const poolMatrix = compose(pool, new THREE.Vector3(7.2, 7.2, 7.2), 0, poolQuaternion);
+      if (cool) {
+        coolBulbs.setMatrixAt(coolCount, bulbMatrix);
+        coolPools.setMatrixAt(coolCount++, poolMatrix);
+        lampPositions.push({ position: bulb, colour: 0x72cfff, intensity: 126 });
+      } else {
+        warmBulbs.setMatrixAt(warmCount, bulbMatrix);
+        warmPools.setMatrixAt(warmCount++, poolMatrix);
+        lampPositions.push({ position: bulb, colour: 0xff9e45, intensity: 145 });
+      }
       used++;
     }
   }
 
   setCount(poles, used);
   setCount(arms, used);
-  setCount(bulbs, used);
-  setCount(pools, used);
-  root.add(poles, arms, bulbs, pools);
+  setCount(warmBulbs, warmCount);
+  setCount(coolBulbs, coolCount);
+  setCount(warmPools, warmCount);
+  setCount(coolPools, coolCount);
+  root.add(poles, arms, warmBulbs, coolBulbs, warmPools, coolPools);
 
   // Cool fluorescent strips and light points inside the tunnel.
   const tunnelStart = route.length * 0.70;
@@ -717,8 +954,9 @@ export function buildScenery(route, materials) {
   const animatedMaterials = [];
 
   buildGround(root, materials);
-  buildCity(root, route, materials);
-  buildIndustrialDistrict(root, route, materials);
+  const cityFootprints = buildCity(root, route, materials);
+  const warehouseFootprints = buildIndustrialDistrict(root, route, materials);
+  root.userData.roadClearanceFootprints = [...cityFootprints, ...warehouseFootprints];
   buildViaductSupports(root, route, materials);
   const streetLights = buildStreetLights(root, route, materials);
   buildChevrons(root, route);

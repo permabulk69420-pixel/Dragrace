@@ -347,54 +347,6 @@ function buildBoulevardLife(root, route, materials) {
   root.add(bins, bollards);
 }
 
-function buildStreetFronts(root, route, materials) {
-  const random = seededRandom(0x570ae17);
-  const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
-  buildingGeo.translate(0, 0.5, 0);
-  const buildings = instance(buildingGeo, materials.building, 64, 'StreetFrontBuildings', { receive: true });
-  const shopGeo = new THREE.PlaneGeometry(1, 1);
-  const shops = instance(shopGeo, materials.storefront, 64, 'LitShopfronts');
-  const awningGeo = new THREE.BoxGeometry(1, 1, 1);
-  const awnings = instance(awningGeo, materials.warning, 64, 'ShopAwnings');
-  const dummy = new THREE.Object3D();
-  let count = 0;
-  const ranges = [[0.655, 0.695], [0.888, 0.992], [0.0, 0.028]];
-  for (let d = 0; d < route.length && count < 64; d += 19.5) {
-    if (!rangeContains(d / route.length, ranges)) continue;
-    const frame = route.atDistance(d);
-    for (const side of [-1, 1]) {
-      if (count >= 64) break;
-      const width = 12.5 + random() * 5;
-      const height = 7.5 + random() * 10;
-      const depth = 8 + random() * 7;
-      const base = route.pointAt(d, side * 15.2, 0);
-      const yaw = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, frame.heading);
-      buildings.setMatrixAt(count, new THREE.Matrix4().compose(base, yaw, new THREE.Vector3(width, height, depth)));
-      buildings.setColorAt(count, new THREE.Color().setHSL(0.56 + random() * 0.08, 0.08, 0.5 + random() * 0.16));
-
-      const face = route.pointAt(d, side * 10.95, 2.0);
-      dummy.position.copy(face);
-      dummy.up.copy(frame.normal);
-      dummy.lookAt(frame.center.clone().addScaledVector(frame.normal, 2.0));
-      dummy.scale.set(width * 0.83, 3.25, 1);
-      dummy.updateMatrix();
-      shops.setMatrixAt(count, dummy.matrix);
-
-      const awning = route.pointAt(d, side * 10.7, 3.85);
-      awnings.setMatrixAt(count, new THREE.Matrix4().compose(
-        awning,
-        yaw,
-        new THREE.Vector3(width * 0.86, 0.18, 1.5)
-      ));
-      count++;
-    }
-  }
-  finishInstances(buildings, count);
-  finishInstances(shops, count);
-  finishInstances(awnings, count);
-  root.add(buildings, shops, awnings);
-}
-
 function buildUnderDeckDetails(root, route, materials) {
   const elevated = [[0.245, 0.515], [0.525, 0.610]];
   const fixtureGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -523,7 +475,6 @@ export function buildRoadsideDetails(route, materials) {
   buildTunnelDetails(root, route, materials);
   buildFencesAndUtilities(root, route, materials);
   buildBoulevardLife(root, route, materials);
-  buildStreetFronts(root, route, materials);
   buildUnderDeckDetails(root, route, materials);
   const impacts = buildImpactEffects(root);
 

@@ -68,11 +68,35 @@ for (const name of [
   'CityBuildings', 'ShippingContainers', 'ViaductPillars', 'StreetLightPoles',
   'TunnelLights', 'CircuitScoreboard', 'ViaductUnderside', 'ViaductGirderWeb_1',
   'TunnelArchRibs', 'AsphaltRepairs', 'AmberLaneReflectors', 'ChainLinkFence_1',
-  'StreetFrontBuildings', 'UnderdeckLights', 'BarrierImpactSparks',
+  'ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers', 'GabledWarehouses',
+  'WarehouseLoadingDoors', 'UnderdeckLights', 'BarrierImpactSparks',
   'TrafficSignalHousings', 'TunnelPortalConcrete', 'IndustrialSmokestacks',
 ]) {
   check(`world node ${name}`, !!track.object.getObjectByName(name));
 }
+
+check('bad street-front filler is completely removed',
+  !track.object.getObjectByName('StreetFrontBuildings') &&
+  !track.object.getObjectByName('ShopAwnings') &&
+  !track.object.getObjectByName('LitShopfronts'));
+
+const towerFamilies = ['ChamferedTowers', 'SetbackTowers', 'RoundCornerTowers']
+  .map((name) => track.object.getObjectByName(name));
+const towerCount = towerFamilies.reduce((sum, family) => sum + family.count, 0);
+check('skyline uses fewer, deliberately shaped buildings',
+  towerCount >= 150 && towerCount <= 190 &&
+  new Set(towerFamilies.map((family) => family.geometry.uuid)).size === 3,
+  `${towerCount} buildings across 3 silhouette families`);
+
+const courseScenery = track.object.getObjectByName('CourseScenery');
+const clearanceFootprints = courseScenery.userData.roadClearanceFootprints ?? [];
+const clearanceViolations = clearanceFootprints.filter((footprint) => {
+  const nearest = track.route.nearest(footprint.x, footprint.z);
+  return nearest.distanceToCentre - footprint.radius < footprint.requiredGap - 0.001;
+});
+check('every large scenery footprint clears the carriageway',
+  clearanceFootprints.length > 100 && clearanceViolations.length === 0,
+  `${clearanceFootprints.length} audited footprints, ${clearanceViolations.length} violations`);
 
 const underside = track.object.getObjectByName('ViaductUnderside');
 const undersideNormals = underside.geometry.getAttribute('normal');
