@@ -19,6 +19,24 @@ const run = (script, args = []) =>
     cwd: root,
   });
 
+function resolveBuildId() {
+  const githubSha = process.env.GITHUB_SHA?.trim();
+  if (githubSha) return githubSha.slice(0, 12);
+
+  try {
+    return execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return String(Date.now());
+  }
+}
+
+const buildId = resolveBuildId().replace(/[^a-zA-Z0-9_-]/g, '');
+const versionedSrcName = `src-${buildId}`;
+
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(dist, { recursive: true });
 
@@ -26,9 +44,29 @@ run('vendor.mjs');
 run('smoke-test.mjs');
 run('world-smoke-test.mjs');
 
-for (const entry of ['index.html', 'src', 'vendor']) {
-  fs.cpSync(path.join(root, entry), path.join(dist, entry), { recursive: true });
+// Keep the ordinary source path for old tabs that are still holding a cached
+// index.html, but make the newly generated page load from a commit-specific
+// directory. Every deployment therefore gets brand-new module URLs, so Quest
+// and mobile browsers cannot quietly reuse scenery/material files from an older
+// GitHub Pages release.
+fs.cpSync(path.join(root, 'src'), path.join(dist, 'src'), { recursive: true });
+fs.cpSync(path.join(root, 'src'), path.join(dist, versionedSrcName), { recursive: true });
+fs.cpSync(path.join(root, 'vendor'), path.join(dist, 'vendor'), { recursive: true });
+
+const sourceIndex = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const sourceEntry = "import('./src/main.js')";
+if (!sourceIndex.includes(sourceEntry)) {
+  throw new Error(`index.html no longer contains expected entry point: ${sourceEntry}`);
 }
+
+const deployedIndex = sourceIndex
+  .replace(sourceEntry, `import('./${versionedSrcName}/main.js')`)
+  .replace('</head>', `<meta name="build-id" content="${buildId}">\n</head>`);
+fs.writeFileSync(path.join(dist, 'index.html'), deployedIndex);
+fs.writeFileSync(
+  path.join(dist, 'build.json'),
+  `${JSON.stringify({ buildId, sourceDirectory: versionedSrcName }, null, 2)}\n`,
+);
 
 // Reusable asset export, served alongside the game.
 run('export-glb.mjs', [path.join('dist', 'assets', 'car.glb')]);
@@ -46,4 +84,4 @@ const walk = (dir) => {
 };
 walk(dist);
 const bytes = files.reduce((n, f) => n + fs.statSync(f).size, 0);
-console.log(`[build] ${files.length} files, ${(bytes / 1024 / 1024).toFixed(2)} MB -> dist/`);
+console.log(`[build] ${files.length} files, ${(bytes / 1024 / 1024).toFixed(2)} MB -> dist/ (${buildId})`);
