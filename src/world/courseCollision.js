@@ -2,9 +2,10 @@
  * Vehicle-agnostic collision against the visible barriers, guardrails and
  * tunnel walls that follow the course.
  *
- * This is a swept boundary solver rather than a post-frame road clamp: it finds
- * the point where the car first reaches the physical inner face, leaves it at
- * that contact point, and reflects/scrubs the actual travel direction.
+ * This remains as a compatibility resolver for callers that do not use the
+ * newer world-space collision system. The live circuit vehicle sets
+ * enforceStripBounds=false and is resolved by StaticCollisionWorld first, so
+ * this class must not apply a second spline clamp afterwards.
  */
 import * as THREE from 'three';
 import {
@@ -106,8 +107,6 @@ export class CourseCollision {
     const previousState = this.#stateAt(previous, hintDistance);
     if (!previousState.zone || previousState.penetration > 0) return currentState;
 
-    // The frame crossed a visible wall. Bisect in world space so high-speed
-    // movement stops at the wall instead of being teleported back after passing it.
     let safeT = 0;
     let blockedT = 1;
     let blockedState = currentState;
@@ -124,9 +123,20 @@ export class CourseCollision {
     return blockedState;
   }
 
-  /** Resolve a plain vehicle pose against the visible course-side structures. */
+  /** Resolve a plain vehicle pose against visible course-side structures. */
   resolve(vehicle, hintDistance = null, dt = 0) {
     this.elapsed += Math.max(0, Number.isFinite(dt) ? dt : 0);
+
+    // The live curved-course Vehicle opts out of the original drag-strip bounds
+    // with enforceStripBounds=false. It is already handled by StaticCollisionWorld
+    // immediately before this call. Returning road metadata only prevents the old
+    // spline resolver from snapping a legitimate wall impact back onto the course.
+    if (vehicle.enforceStripBounds === false) {
+      const road = this.route.nearest(vehicle.x, vehicle.z, hintDistance);
+      this.previousPose = { x: vehicle.x, z: vehicle.z, heading: vehicle.heading };
+      return { collided: false, road, zone: activeZone(road.u), impact: 0, emit: false };
+    }
+
     const current = { x: vehicle.x, z: vehicle.z, heading: vehicle.heading };
     const previous = this.previousPose ?? current;
     const contact = this.#findContact(previous, current, hintDistance);
