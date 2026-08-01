@@ -465,10 +465,13 @@ export class StaticCollisionWorld {
 }
 
 export function buildStaticCollisionWorld(root, options = {}) {
-  const route = options.route ?? courseRoute;
+  const {
+    includeCourseBoundaries = true,
+    route = courseRoute,
+  } = options;
   const colliders = [
     ...collectStaticColliders(root),
-    ...collectCourseBoundaryColliders(route),
+    ...(includeCourseBoundaries ? collectCourseBoundaryColliders(route) : []),
   ];
   return new StaticCollisionWorld(colliders, options);
 }
