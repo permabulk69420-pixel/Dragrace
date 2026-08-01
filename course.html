@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Bayfront Circuit: a first-person WebXR street racing course for Meta Quest, built with Three.js.">
+<title>Bayfront Circuit &mdash; VR Street Course</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#127961;</text></svg>">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070c; }
+  body { font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; color: #e8eef7; }
+  canvas { display: block; touch-action: none; }
+
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 50% 35%, #1b2740 0%, #05070c 70%);
+    z-index: 20; transition: opacity .5s ease; padding: 24px;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  .panel { max-width: 700px; text-align: center; }
+  .panel h1 {
+    font-size: clamp(28px, 6vw, 48px); margin: 0 0 4px; letter-spacing: .12em; text-transform: uppercase;
+    background: linear-gradient(180deg, #fff 30%, #35e0ff 130%); -webkit-background-clip: text;
+    background-clip: text; color: transparent;
+  }
+  .panel p.sub { margin: 0 0 22px; color: #8fa3bf; letter-spacing: .28em; font-size: 12px; text-transform: uppercase; }
+  .bar { height: 4px; background: #16233a; border-radius: 4px; overflow: hidden; margin: 20px auto 10px; max-width: 340px; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #ff6a00, #35e0ff); transition: width .25s ease; }
+  #status { font-size: 13px; color: #7d90ac; min-height: 20px; }
+  #enter { display: none; margin-top: 18px; }
+  #enter button {
+    font: inherit; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; cursor: pointer;
+    padding: 13px 26px; margin: 6px; border-radius: 999px; border: 1px solid #2c3f5e;
+    background: #101a2b; color: #dbe6f5; transition: background .15s, border-color .15s, transform .1s;
+  }
+  #enter button:hover { background: #17243a; border-color: #4a6ea8; }
+  #enter button:active { transform: translateY(1px); }
+  .keys { margin-top: 24px; font-size: 12.5px; color: #7d90ac; line-height: 1.9; }
+  .keys kbd {
+    background: #14203a; border: 1px solid #26355480; border-bottom-width: 2px; border-radius: 5px;
+    padding: 1px 7px; font-family: ui-monospace, monospace; font-size: 11.5px; color: #cfe0f5;
+  }
+  .note { margin-top: 16px; font-size: 11.5px; color: #56688a; }
+
+  #hud {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; pointer-events: none;
+    padding: 14px 18px; display: none; justify-content: space-between; align-items: flex-end;
+    font-variant-numeric: tabular-nums; text-shadow: 0 2px 8px #000a;
+  }
+  #hud.on { display: flex; }
+  #hud .speed b { font-size: 44px; font-weight: 800; line-height: .9; color: #ffd166; }
+  #hud .speed span { font-size: 13px; color: #a9bcd6; letter-spacing: .18em; }
+  #hud .mode { font-size: 12px; letter-spacing: .22em; color: #35e0ff; margin-bottom: 6px; }
+  #hud .right { text-align: right; font-size: 13px; color: #a9bcd6; line-height: 1.7; }
+  #hud .right b { color: #fff; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="panel">
+    <h1>Bayfront Circuit</h1>
+    <p class="sub">WebXR &middot; 3.2 km street course</p>
+    <div class="bar"><i id="progress"></i></div>
+    <div id="status">Loading&hellip;</div>
+    <div id="enter">
+      <button id="btn-vr" class="primary" disabled>Enter VR</button>
+      <button id="btn-desktop">Drive on desktop</button>
+      <button id="btn-ride">Hot lap tour</button>
+    </div>
+    <div class="keys">
+      <b>Quest</b> &middot; right trigger throttle &middot; left trigger brake &middot; right stick steers &middot;
+      right grip boost &middot; <b>A</b> change view mode &middot; <b>B</b> back to the grid &middot;
+      <b>X</b> car marker &middot; <b>Y</b> recentre &middot; left stick click: hot lap<br>
+      <b>Desktop</b> &middot; <kbd>W</kbd> throttle &middot; <kbd>S</kbd> brake &middot; <kbd>A</kbd><kbd>D</kbd> steer &middot;
+      mouse look (click to lock) &middot; <kbd>M</kbd> mode &middot; <kbd>T</kbd> hot lap &middot;
+      <kbd>R</kbd> restart &middot; <kbd>P</kbd> car marker &middot; hold <kbd>B</kbd> boost &middot;
+      in fly mode <kbd>E</kbd>/<kbd>Q</kbd> up &amp; down
+    </div>
+    <p class="note">
+      Course preview. The viewpoint is a camera rig, not the car &mdash; the vehicle is built
+      separately and drops onto the grid slot marked in blue.
+    </p>
+  </div>
+</div>
+
+<div id="hud">
+  <div>
+    <div class="mode" id="hud-mode">DRIVE</div>
+    <div class="speed"><b id="hud-speed">0</b> <span>km/h</span></div>
+  </div>
+  <div class="right" id="hud-info"></div>
+</div>
+
+<script type="module">
+  const status = document.getElementById('status');
+  const fail = (msg) => {
+    status.innerHTML = `<span style="color:#ff8a8a">${msg}</span>`;
+    document.getElementById('progress').style.width = '100%';
+  };
+  window.addEventListener('error', (e) => fail(`Error: ${e.message}`));
+  window.addEventListener('unhandledrejection', (e) => fail(`Error: ${e.reason?.message ?? e.reason}`));
+  import('./src/course-main.js').catch((e) => fail(`Failed to start: ${e.message}`));
+</script>
+</body>
+</html>
